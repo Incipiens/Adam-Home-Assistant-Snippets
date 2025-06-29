@@ -1,0 +1,50 @@
+alias: LLM weather forecast notification
+description: ""
+triggers:
+  - trigger: time
+    at:
+      entity_id: sensor.cph2671_next_alarm
+      offset: "-00:00:10"
+conditions:
+  - condition: zone
+    entity_id: person.adamconway
+    zone: zone.home
+actions:
+  - action: weather.get_forecasts
+    metadata: {}
+    data:
+      type: daily
+    target:
+      entity_id: weather.pirateweather
+    response_variable: wx
+  - action: conversation.process
+    metadata: {}
+    data:
+      agent_id: conversation.google_generative_ai_gemini_2_5_flash_2
+      text: >-
+        {# pull the first (today) block #}
+
+        {% set today_fc = wx['weather.pirateweather']['forecast'][0]
+                          if wx and wx.get('weather.pirateweather') else {} %}
+
+        For this task, you are a meteorologist and you are responsible for
+        providing the user information about the weather for the day. This
+        information will be provided in the form of a notification on their
+        phone, so keep it brief. You will provide information on the highest and
+        lowest temperatures, and also provide guidance on what clothes they
+        should wear for the day, such as whether a coat is required or not. For
+        example, a cold day may require a hoodie and a jacket, or a hot but
+        rainy day may require a rain coat. The weather data is as follows {{
+        today_fc | to_json }}
+    response_variable: wresponse
+  - action: input_text.set_value
+    metadata: {}
+    data:
+      value: "{{ wresponse.response.speech.plain.speech }}"
+    target:
+      entity_id: input_text.clothes_suggestion
+  - action: notify.mobile_app_cph2671
+    metadata: {}
+    data:
+      message: "{{ wresponse.response.speech.plain.speech }}"
+mode: single

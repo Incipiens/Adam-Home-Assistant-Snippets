@@ -1,0 +1,82 @@
+alias: Weather Primary Condition Light
+description: ""
+triggers:
+  - trigger: time
+    at:
+      entity_id: sensor.cph2671_next_alarm
+      offset: "-00:00:10"
+conditions:
+  - condition: zone
+    entity_id: person.adamconway
+    zone: zone.home
+actions:
+  - action: weather.get_forecasts
+    metadata: {}
+    data:
+      type: daily
+    target:
+      entity_id: weather.pirateweather
+    response_variable: wx
+  - variables:
+      condition: >-
+        {{ (wx['weather.pirateweather']['forecast'][0].condition if wx and
+        wx.get('weather.pirateweather') else 'unknown') | lower }}
+      rgb_map:
+        sunny:
+          - 255
+          - 213
+          - 0
+        clear:
+          - 255
+          - 213
+          - 0
+        partlycloudy:
+          - 255
+          - 236
+          - 140
+        cloudy:
+          - 255
+          - 255
+          - 255
+        overcast:
+          - 235
+          - 235
+          - 235
+        rainy:
+          - 64
+          - 156
+          - 255
+        pouring:
+          - 32
+          - 128
+          - 255
+        snowy:
+          - 200
+          - 240
+          - 255
+        fog:
+          - 240
+          - 240
+          - 240
+        windy:
+          - 255
+          - 245
+          - 200
+  - action: input_text.set_value
+    metadata: {}
+    data:
+      value: "{{ condition }}"
+    target:
+      entity_id: input_text.weather_primary_condition
+  - variables:
+      rgb: |
+        {{ rgb_map.get(states('input_text.weather_primary_condition'),
+                        [255,255,255]) }}
+  - action: light.turn_on
+    metadata: {}
+    data:
+      brightness_pct: 80
+      rgb_color: "{{ rgb }}"
+    target:
+      device_id: 7443cc0d215861e4624f05e2ea6c3fb5
+mode: single

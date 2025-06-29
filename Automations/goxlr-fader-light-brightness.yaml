@@ -1,0 +1,20 @@
+alias: Fader to Light brightness
+description: ""
+triggers:
+  - entity_id: media_player.pc_goxlr_sample
+    attribute: volume_level
+    trigger: state
+conditions:
+  - condition: template
+    value_template: |-
+      {{ trigger.to_state.attributes.volume_level | float
+               != trigger.from_state.attributes.volume_level | float }}
+actions:
+  - target:
+      entity_id: light.office_light
+    data:
+      brightness_pct: >
+        {% set vol = state_attr('media_player.pc_goxlr_sample', 'volume_level')
+        | float(0) %} {{ (vol * 100) | round(0) }}
+    action: light.turn_on
+mode: restart
