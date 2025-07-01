@@ -211,8 +211,18 @@ text_sensor:
         - lambda: 'id(data_updated) = true;'
 
   - platform: homeassistant
-    id: article_feed
-    entity_id: sensor.article_feed_6
+    id: asana_tasks
+    entity_id: sensor.asana_due_today
+    attribute: tasks_str
+    internal: false
+    on_value:
+      then:
+        - lambda: 'id(data_updated) = true;'
+  
+  - platform: homeassistant
+    id: first_call
+    entity_id: sensor.first_call
+    internal: false
     on_value:
       then:
         - lambda: 'id(data_updated) = true;'
@@ -426,6 +436,40 @@ display:
 
         it.printf(600, 75, id(font_title), color_black, TextAlign::TOP_CENTER,
                 "WORK");
+
+        std::string tasks_text = id(asana_tasks).state;
+        std::vector<std::string> lines;
+
+        int y = 200;
+        const int ROW = 20; // Height to move down on the display for each row
+        size_t start = 0, end;
+        while ((end = tasks_text.find('\n', start)) != std::string::npos) {
+          std::string line = tasks_text.substr(start, end - start);
+
+          if (line.length() > 30) line = line.substr(0, 30) + "...";
+          it.printf(600, y, id(font_roboto_small), color_black, TextAlign::TOP_CENTER,
+                    "%s", line.c_str());
+
+          y += ROW;
+          start  = end + 1;
+        }
+
+        // print the last (or only) line
+        if (start < tasks_text.length()) {
+          std::string line = tasks_text.substr(start);
+          if (line.length() > 30) line = line.substr(0, 30) + "...";
+          it.printf(600, y, id(font_roboto_small), color_black, TextAlign::TOP_CENTER,
+                    "%s", line.c_str());
+        }
+
+        // Check if there is a call state at all
+        if(id(first_call).state != "none" ) {
+          it.printf(600, 360, id(font_roboto_small), color_black, TextAlign::TOP_CENTER,
+                "Next call: %s", id(first_call).state.c_str());
+        } else {
+          it.printf(600, 360, id(font_roboto_small), color_black, TextAlign::TOP_CENTER,
+                "No calls!");
+        }
         
         // ───── REFRESH TIMESTAMP ─────
         char str[17];

@@ -1,3 +1,27 @@
+  - sensor:
+      - name: "Asana – due today"
+        unique_id: asana_due_today
+        state: >
+          {{ state_attr('sensor.asana', 'list_future_0days') }}
+
+        # Attributes
+        attributes:
+          # Removing date prefix from each task using regex, currently unused in the dashboard
+          tasks: >
+            {{
+              state_attr('sensor.asana', 'list_future_0days') | default([], true)
+              | map('regex_replace', '^[\\d]{4}-[\\d]{2}-[\\d]{2} - ', '')
+              | list
+            }}
+        
+          # Removing date prefix from each task using regex and joining them with a newline character to separate tasks
+          tasks_str: >
+            {{
+              state_attr('sensor.asana', 'list_future_0days') | default([], true)
+              | map('regex_replace', '^[\\d]{4}-[\\d]{2}-[\\d]{2} - ', '')
+              | join('\n')
+            }}  
+  
   - trigger:
       - platform: time_pattern
         minutes: "/30"  # every 30 minutes     
