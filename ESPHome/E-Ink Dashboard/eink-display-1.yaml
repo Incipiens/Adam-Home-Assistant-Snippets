@@ -332,10 +332,11 @@ display:
       number: GPIO4
       inverted: true
     reset_pin: GPIO2
-    model: 7.50inv2
+    model: 7.50inv2p
     reset_duration: 2ms
     rotation: 0°
     update_interval: 300s
+    full_update_every: 30
     lambda: |-
       // Map weather states to MDI characters.
       std::map<std::string, std::string> weather_icon_map
@@ -462,13 +463,43 @@ display:
                     "%s", line.c_str());
         }
 
-        // Check if there is a call state at all
-        if(id(first_call).state != "none" ) {
-          it.printf(600, 360, id(font_roboto_small), color_black, TextAlign::TOP_CENTER,
-                "Next call: %s", id(first_call).state.c_str());
+
+        // check if there is a call state at all
+        if (id(first_call).state != "none") {
+
+          // building call text
+          std::string call_text = std::string("Next call: ") + id(first_call).state.c_str();
+
+          const size_t MAX_LINE = 30;
+
+          if (call_text.length() > MAX_LINE) {
+            // look for whitespace near centre of string
+            size_t centre = call_text.length() / 2;
+            size_t split_pos = call_text.find_last_of(' ', centre);   // checking before centre
+            if (split_pos == std::string::npos)
+                split_pos = call_text.find(' ', centre);              // checking after centre
+            if (split_pos == std::string::npos)
+                split_pos = MAX_LINE;                                 // hard cutting if needed
+
+            // splitting into two lines, removing the space that was found
+            std::string line1 = call_text.substr(0, split_pos);
+            std::string line2 = call_text.substr(split_pos + 1);
+
+            it.printf(600, 360, id(font_roboto_small), color_black,
+                      TextAlign::TOP_CENTER, "%s", line1.c_str());
+            it.printf(600, 380, id(font_roboto_small), color_black,
+                      TextAlign::TOP_CENTER, "%s", line2.c_str());
+
+          } else {
+            // Just one line
+            it.printf(600, 360, id(font_roboto_small), color_black,
+                      TextAlign::TOP_CENTER, "%s", call_text.c_str());
+          }
+
         } else {
-          it.printf(600, 360, id(font_roboto_small), color_black, TextAlign::TOP_CENTER,
-                "No calls!");
+          // no call scheduled
+          it.printf(600, 360, id(font_roboto_small), color_black,
+                    TextAlign::TOP_CENTER, "No calls!");
         }
         
         // ───── REFRESH TIMESTAMP ─────
