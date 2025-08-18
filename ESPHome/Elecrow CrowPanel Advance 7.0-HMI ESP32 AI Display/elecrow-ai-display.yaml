@@ -1,6 +1,4 @@
 substitutions:
-  name: esp32-s3-box-3
-  friendly_name: ESP32 S3 Box 3
   loading_illustration_file: https://github.com/esphome/wake-word-voice-assistants/raw/main/casita/loading_320_240.png
   idle_illustration_file: https://github.com/esphome/wake-word-voice-assistants/raw/main/casita/idle_320_240.png
   listening_illustration_file: https://github.com/esphome/wake-word-voice-assistants/raw/main/casita/listening_320_240.png
@@ -394,49 +392,32 @@ script:
                       condition:
                         api.connected:
                       then:
-                        - lambda: |
-                            switch(id(voice_assistant_phase)) {
-                              case ${voice_assist_listening_phase_id}:
-                                id(main_display).show_page(listening_page);
-                                id(main_display).update();
-                                break;
-                              case ${voice_assist_thinking_phase_id}:
-                                id(main_display).show_page(thinking_page);
-                                id(main_display).update();
-                                break;
-                              case ${voice_assist_replying_phase_id}:
-                                id(main_display).show_page(replying_page);
-                                id(main_display).update();
-                                break;
-                              case ${voice_assist_error_phase_id}:
-                                id(main_display).show_page(error_page);
-                                id(main_display).update();
-                                break;
-                              case ${voice_assist_muted_phase_id}:
-                                id(main_display).show_page(muted_page);
-                                id(main_display).update();
-                                break;
-                              case ${voice_assist_not_ready_phase_id}:
-                                id(main_display).show_page(no_ha_page);
-                                id(main_display).update();
-                                break;
-                              case ${voice_assist_timer_finished_phase_id}:
-                                id(main_display).show_page(timer_finished_page);
-                                id(main_display).update();
-                                break;
-                              default:
-                                id(main_display).show_page(idle_page);
-                                id(main_display).update();
-                            }
+                      - if: { condition: { lambda: 'return id(voice_assistant_phase) == ${voice_assist_listening_phase_id};'  }, then: { lvgl.page.show: listening_page } }
+                      - if: { condition: { lambda: 'return id(voice_assistant_phase) == ${voice_assist_thinking_phase_id};'   }, then: { lvgl.page.show: thinking_page  } }
+                      - if: { condition: { lambda: 'return id(voice_assistant_phase) == ${voice_assist_replying_phase_id};'   }, then: { lvgl.page.show: replying_page  } }
+                      - if: { condition: { lambda: 'return id(voice_assistant_phase) == ${voice_assist_error_phase_id};'      }, then: { lvgl.page.show: error_page     } }
+                      - if: { condition: { lambda: 'return id(voice_assistant_phase) == ${voice_assist_muted_phase_id};'      }, then: { lvgl.page.show: muted_page     } }
+                      - if: { condition: { lambda: 'return id(voice_assistant_phase) == ${voice_assist_not_ready_phase_id};'  }, then: { lvgl.page.show: no_ha_page     } }
+                      - if: { condition: { lambda: 'return id(voice_assistant_phase) == ${voice_assist_timer_finished_phase_id};' }, then: { lvgl.page.show: timer_finished_page } }
+                      # default
+                      - if:
+                          condition:
+                            lambda: >
+                              return id(voice_assistant_phase) != ${voice_assist_listening_phase_id} &&
+                                    id(voice_assistant_phase) != ${voice_assist_thinking_phase_id} &&
+                                    id(voice_assistant_phase) != ${voice_assist_replying_phase_id} &&
+                                    id(voice_assistant_phase) != ${voice_assist_error_phase_id} &&
+                                    id(voice_assistant_phase) != ${voice_assist_muted_phase_id} &&
+                                    id(voice_assistant_phase) != ${voice_assist_not_ready_phase_id} &&
+                                    id(voice_assistant_phase) != ${voice_assist_timer_finished_phase_id};
+                          then:
+                            - lvgl.page.show: idle_page
                       else:
-                        - display.page.show: no_ha_page
-                        - component.update: main_display
+                        - lvgl.page.show: no_ha_page 
                 else:
-                  - display.page.show: no_wifi_page
-                  - component.update: main_display
+                  - lvgl.page.show: no_wifi_page
           else:
-            - display.page.show: initializing_page
-            - component.update: main_display
+            - lvgl.page.show: initializing_page
 
   - id: fetch_first_active_timer
     then:
@@ -704,47 +685,47 @@ image:
   - file: ${error_illustration_file}
     id: casita_error
     resize: 320x240
-    type: RGB
+    type: RGB565
     transparency: alpha_channel
   - file: ${idle_illustration_file}
     id: casita_idle
     resize: 320x240
-    type: RGB
+    type: RGB565
     transparency: alpha_channel
   - file: ${listening_illustration_file}
     id: casita_listening
     resize: 320x240
-    type: RGB
+    type: RGB565
     transparency: alpha_channel
   - file: ${thinking_illustration_file}
     id: casita_thinking
     resize: 320x240
-    type: RGB
+    type: RGB565
     transparency: alpha_channel
   - file: ${replying_illustration_file}
     id: casita_replying
     resize: 320x240
-    type: RGB
+    type: RGB565
     transparency: alpha_channel
   - file: ${timer_finished_illustration_file}
     id: casita_timer_finished
     resize: 320x240
-    type: RGB
+    type: RGB565
     transparency: alpha_channel
   - file: ${loading_illustration_file}
     id: casita_initializing
     resize: 320x240
-    type: RGB
+    type: RGB565
     transparency: alpha_channel
   - file: https://github.com/esphome/wake-word-voice-assistants/raw/main/error_box_illustrations/error-no-wifi.png
     id: error_no_wifi
     resize: 320x240
-    type: RGB
+    type: RGB565
     transparency: alpha_channel
   - file: https://github.com/esphome/wake-word-voice-assistants/raw/main/error_box_illustrations/error-no-ha.png
     id: error_no_ha
     resize: 320x240
-    type: RGB
+    type: RGB565
     transparency: alpha_channel
 
 font:
@@ -813,6 +794,153 @@ color:
   - id: paused_timer_color
     hex: "3b89e3"
 
+lvgl:
+  top_layer:
+    widgets:
+      - bar:
+          id: timer_timeline
+          x: 0
+          y: 460
+          width: 800
+          height: 20
+          min_value: 0
+          max_value: 100
+          value: !lambda |-
+            return (int) id(global_first_active_timer).seconds_left;
+
+          bg_color: 0x202020
+          pad_all: 0
+          radius: 0
+
+          indicator:
+            bg_color: 0xFFFFFF
+            radius: 0
+
+  pages:
+
+    # IDLE
+    - id: idle_page
+      bg_color: idle_color
+      widgets:
+        - image:
+            src: casita_idle
+            align: CENTER
+
+    # LISTENING
+    - id: listening_page
+      bg_color: listening_color
+      widgets:
+        - image:
+            src: casita_listening
+            align: CENTER
+
+    # ERROR
+    - id: error_page
+      bg_color: listening_color
+      widgets:
+        - image:
+            src: casita_error
+            align: CENTER
+
+    # NO HA
+    - id: no_ha_page
+      bg_color: listening_color
+      widgets:
+        - image:
+            src: error_no_ha
+            align: CENTER
+
+    # NO WI-FI
+    - id: no_wifi_page
+      bg_color: listening_color
+      widgets:
+        - image:
+            src: error_no_wifi
+            align: CENTER
+
+    # MUTED
+    - id: muted_page
+      bg_color: listening_color
+      widgets:
+        - image:
+            src: casita_idle
+            align: CENTER
+      
+    # INIT
+    - id: initializing_page
+      bg_color: listening_color
+      widgets:
+        - image:
+            src: casita_initializing
+            align: CENTER
+
+    # NO WI-FI
+    - id: timer_finished_page
+      bg_color: listening_color
+      widgets:
+        - image:
+            src: casita_initializing
+            align: CENTER
+
+    # THINKING
+    - id: thinking_page
+      bg_color: 0x2A2A2A
+      widgets:
+        - image:
+            src: casita_thinking
+            align: CENTER
+
+        - obj:
+            id: req_box
+            x: 20
+            y: 20
+            width: 280
+            height: 30
+            bg_color: 0xFFFFFF
+            border_color: 0x000000
+            border_width: 2
+            radius: 0
+            pad_all: 0
+            widgets:
+              - label:
+                  id: req_label
+                  x: 10
+                  y: 5
+                  text_font: font_request
+                  width: 260
+                  long_mode: SCROLL_CIRCULAR    # or DOT / CLIP
+                  text: !lambda |-
+                    return id(text_request).state;
+
+    # REPLYING
+    - id: replying_page
+      bg_color: replying_color
+      widgets:
+        - image:
+            src: casita_replying
+            align: CENTER
+
+        - obj:
+            id: reply_box
+            x: 20
+            y: 20
+            width: 280
+            height: 30
+            bg_color: 0xFFFFFF
+            border_color: 0x000000
+            border_width: 2
+            radius: 0
+            pad_all: 0
+            widgets:
+              - label:
+                  id: reply_label
+                  x: 10
+                  y: 5
+                  text_font: font_request
+                  width: 260
+                  long_mode: SCROLL_CIRCULAR
+                  text: !lambda |-
+                    return id(text_request).state;
 
 display:
   - platform: rpi_dpi_rgb
@@ -855,58 +983,3 @@ display:
         - 48
         - 45
         - 38
-    pages:
-      - id: idle_page
-        lambda: |-
-          it.fill(id(idle_color));
-          it.image((it.get_width() / 2), (it.get_height() / 2), id(casita_idle), ImageAlign::CENTER);
-          id(draw_timer_timeline).execute();
-          id(draw_active_timer_widget).execute();
-      - id: listening_page
-        lambda: |-
-          it.fill(id(listening_color));
-          it.image((it.get_width() / 2), (it.get_height() / 2), id(casita_listening), ImageAlign::CENTER);
-          id(draw_timer_timeline).execute();
-      - id: thinking_page
-        lambda: |-
-          it.fill(id(thinking_color));
-          it.image((it.get_width() / 2), (it.get_height() / 2), id(casita_thinking), ImageAlign::CENTER);
-          it.filled_rectangle(20 , 20 , 280 , 30 , Color::WHITE );
-          it.rectangle(20 , 20 , 280 , 30 , Color::BLACK );
-          it.printf(30, 25, id(font_request), Color::BLACK, "%s", id(text_request).state.c_str());
-          id(draw_timer_timeline).execute();
-      - id: replying_page
-        lambda: |-
-          it.fill(id(replying_color));
-          it.image((it.get_width() / 2), (it.get_height() / 2), id(casita_replying), ImageAlign::CENTER);
-          it.filled_rectangle(20 , 20 , 280 , 30 , Color::WHITE );
-          it.rectangle(20 , 20 , 280 , 30 , Color::BLACK );
-          it.filled_rectangle(20 , 190 , 280 , 30 , Color::WHITE );
-          it.rectangle(20 , 190 , 280 , 30 , Color::BLACK );
-          it.printf(30, 25, id(font_request), Color::BLACK, "%s", id(text_request).state.c_str());
-          it.printf(30, 195, id(font_response), Color::BLACK, "%s", id(text_response).state.c_str());
-          id(draw_timer_timeline).execute();
-      - id: timer_finished_page
-        lambda: |-
-          it.fill(id(idle_color));
-          it.image((it.get_width() / 2), (it.get_height() / 2), id(casita_timer_finished), ImageAlign::CENTER);
-      - id: error_page
-        lambda: |-
-          it.fill(id(error_color));
-          it.image((it.get_width() / 2), (it.get_height() / 2), id(casita_error), ImageAlign::CENTER);
-      - id: no_ha_page
-        lambda: |-
-          it.image((it.get_width() / 2), (it.get_height() / 2), id(error_no_ha), ImageAlign::CENTER);
-      - id: no_wifi_page
-        lambda: |-
-          it.image((it.get_width() / 2), (it.get_height() / 2), id(error_no_wifi), ImageAlign::CENTER);
-      - id: initializing_page
-        lambda: |-
-          it.fill(id(loading_color));
-          it.image((it.get_width() / 2), (it.get_height() / 2), id(casita_initializing), ImageAlign::CENTER);
-      - id: muted_page
-        lambda: |-
-          it.fill(Color::BLACK);
-          id(draw_timer_timeline).execute();
-          id(draw_active_timer_widget).execute();
-
