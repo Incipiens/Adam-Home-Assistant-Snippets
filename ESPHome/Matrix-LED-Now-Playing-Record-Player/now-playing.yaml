@@ -1,0 +1,236 @@
+esphome:
+  name: matrixnowplaying
+  friendly_name: MatrixNowPlaying
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+
+external_components:
+  - source: github://TillFleisch/ESPHome-HUB75-MatrixDisplayWrapper@main
+
+
+mqtt:
+  broker: 192.168.1.71 
+  # It would be good to check for existing message if it reboots while song is playing, right now we
+  # only check for a new event
+  on_json_message:
+    - topic: media/now_playing
+      then:
+        - lambda: |-
+            // reading mqtt format
+            auto track = x["track"];
+            const char* ev = x["event"].as<const char*>();
+
+            if (track.isNull() || !ev || strcmp(ev, "now_playing") != 0) {
+              id(ts_spotify_song).publish_state("");
+              id(ts_spotify_artist).publish_state("");
+              return;
+            }
+
+            std::string title = track["title"].as<std::string>();
+            std::string artist = track["artist"].as<std::string>();
+
+            if (title.empty()) {
+              id(ts_spotify_song).publish_state("");
+              id(ts_spotify_artist).publish_state("");
+              return;
+            }
+
+            // Reset the song marquee when the title actually changes
+            if (!id(ts_spotify_song).has_state() || id(ts_spotify_song).state != title) {
+              id(song_x) = 64;
+            }
+
+            id(ts_spotify_song).publish_state(title);
+            id(ts_spotify_artist).publish_state(artist);
+
+# mqtt sensors, reusing "spotify" nomenclature from previous iteration but needs refactoring
+text_sensor:
+  - platform: template
+    id: ts_spotify_song
+    name: "Now Playing Song"
+    internal: true
+  - platform: template
+    id: ts_spotify_artist
+    name: "Now Playing Artist"
+    internal: true
+
+# scroll state
+globals:
+  - id: song_x
+    type: int
+    restore_value: no
+    initial_value: '64'
+
+# Scroll tick
+interval:
+  - interval: 80ms
+    then:
+      - lambda: |-
+          const std::string song = id(ts_spotify_song).state.c_str();
+          const bool idle = song.empty() || song == "null";
+          if (!idle) {
+            // Approximate width using avg char width for size 10
+            const int char_w_song = 6;
+            const int panel_w = 64;
+            const int song_w = (int)song.size() * char_w_song;
+
+            if (song_w > panel_w) {
+              id(song_x) -= 1;
+              if (id(song_x) < -(song_w + 12))
+                id(song_x) = panel_w;
+            } else {
+              id(song_x) = 0;
+            }
+          } else {
+            id(song_x) = 0;
+          }
+
+# 10 for song, 8 for artist
+font:
+  - file: "gfonts://Open Sans"
+    id: f_artist
+    size: 8
+  - file: "gfonts://Open Sans"
+    id: f_song
+    size: 10
+
+# HUB 75 wiring, be careful as you may need to swap pins if colors seem inaccurate
+display:
+  - platform: hub75_matrix_display
+    id: matrix
+    rotation: 0
+    width: 64
+    height: 32
+    R1_pin: 25
+    G1_pin: 27
+    B1_pin: 26
+    R2_pin: 14
+    G2_pin: 13
+    B2_pin: 12
+    A_pin: 22
+    B_pin: 32
+    C_pin: 33
+    D_pin: 17
+    E_pin: 21
+    LAT_pin: 4
+    OE_pin: 15
+    CLK_pin: 16
+    lambda: |-
+      // Helpers for splitting
+      auto split_tokens = [](const std::string &text) {
+        std::vector<std::string> tokens;
+        std::string cur;
+        for (char c : text) {
+          if (c == ' ') {
+            if (!cur.empty()) { tokens.push_back(cur); cur.clear(); }
+            tokens.push_back(" ");
+          } else {
+            cur.push_back(c);
+          }
+        }
+        if (!cur.empty()) tokens.push_back(cur);
+        return tokens;
+      };
+
+      auto wrap_two_lines_with_ellipsis = [&](const std::string &text, int char_w, int max_px, std::array<std::string,2> &out) {
+        const int cap = max_px / char_w;
+        out = {"",""};
+        if (cap <= 0) return;
+
+        // If it fits on one line, keep it it on one
+        // Side note, the casting here is a bit inefficient. Could do with a re-write
+        if ((int)text.size() <= cap) {
+          out[0] = text;
+          out[1].clear();
+          return;
+        }
+
+        auto toks = split_tokens(text);
+
+        // Fill both L1 and L2.  if we overflow on L2, truncate and append "..."
+        for (const auto &t : toks) {
+          if ((int)out[0].size() + (int)t.size() <= cap) {
+            out[0] += t;
+          } else if ((int)out[1].size() + (int)t.size() <= cap) {
+            out[1] += t;
+          } else {
+            // need to truncate L2 and append "..."
+            std::string l2 = out[1];
+            // Trim trailing space
+            while (!l2.empty() && l2.back() == ' ') l2.pop_back();
+            const int ell = 3; // Tracking ellipses
+            if ((int)l2.size() > cap - ell) {
+              if (cap >= ell) l2 = l2.substr(0, cap - ell);
+              else l2.clear();
+            }
+            l2 += (cap >= 3 ? "..." : "");
+            out[1] = l2;
+            return;
+          }
+        }
+      };
+
+      std::string song = id(ts_spotify_song).has_state() ? std::string(id(ts_spotify_song).state.c_str()) : "";
+      std::string artist = id(ts_spotify_artist).has_state() ? std::string(id(ts_spotify_artist).state.c_str()) : "";
+
+      const bool idle = song.empty() || song == "null";
+      if (artist == "null") artist.clear();
+
+      it.clear();
+
+      if (idle) {
+        it.printf(32, 4, id(f_artist), Color(0, 255, 120), TextAlign::TOP_CENTER, "Music");
+        it.printf(32, 16, id(f_song), Color(255, 255, 255), TextAlign::TOP_CENTER, "Idle");
+        return;
+      }
+
+      // setting constraints
+      const int panel_w = 64;
+      const int song_y = 0; // size 10
+      const int artist_top_y = 14; // below song with some spacing
+      const int artist_line_h = 9;   // size 8 + 1px leading
+
+      // Scrolling track
+      it.printf(id(song_x), song_y, id(f_song), Color(255, 255, 255), TextAlign::TOP_LEFT, "%s", song.c_str());
+
+      // Artist
+      std::array<std::string,2> lines;
+      wrap_two_lines_with_ellipsis(artist, 5, panel_w, lines);
+
+      if (lines[1].empty()) {
+        // centering single line
+        it.printf(32, artist_top_y, id(f_artist), Color(0, 255, 120), TextAlign::TOP_CENTER, "%s", lines[0].c_str());
+      } else {
+        // centering two lines
+        it.printf(32, artist_top_y, id(f_artist), Color(0, 255, 120), TextAlign::TOP_CENTER, "%s", lines[0].c_str());
+        it.printf(32, artist_top_y + artist_line_h, id(f_artist), Color(0, 255, 120), TextAlign::TOP_CENTER, "%s", lines[1].c_str());
+      }
+
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: ""
+
+ota:
+  - platform: esphome
+    password: ""
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Matrixnowplaying"
+    password: ""
+
+captive_portal:
+    
