@@ -1,0 +1,43 @@
+rest_command:
+  llm_email_triage:
+    url: "http://<x>:11434/api/chat"
+    method: POST
+    headers:
+      Content-Type: "application/json"
+    payload: >
+      {{ {
+        "model": "dolphin-llama3",
+        "stream": false,
+        "keep_alive": "24h", 
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are an email-triage assistant. Read the email JSON, then return ONLY JSON matching the schema."
+          },
+          {
+            "role": "user",
+            "content": (email_payload if email_payload is string else (email_payload | to_json))
+          }
+        ],
+        "format": {
+          "type":"object",
+          "properties":{
+            "priority":{"type":"string","enum":["P0","P1","P2","P3"]},
+            "category":{"type":"string","enum":["personal","transaction","calendar","newsletter","promo","alert","receipt","support","unknown"]},
+            "summary":{"type":"string"},
+            "actions":{"type":"object","properties":{
+              "archive":{"type":"boolean"},
+              "move_to_folder":{"type":"string"},
+              "snooze_until":{"type":"string"},
+              "create_task":{"type":"object","properties":{"title":{"type":"string"},"due":{"type":"string"}},"required":["title"]}
+            },"additionalProperties":false},
+            "confidence":{"type":"number"}
+          },
+          "required":["priority","category","summary","actions","confidence"],
+          "additionalProperties":false
+        },
+        "options": {
+          "temperature": 0,
+          "num_ctx": 32768
+        }
+      } | to_json }}

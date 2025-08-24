@@ -1,0 +1,59 @@
+alias: Email triage - classify new
+description: ""
+triggers:
+  - event_type: imap_content
+    event_data:
+      initial: true
+    trigger: event
+actions:
+  - action: imap.fetch
+    data:
+      entry: "{{ entry }}"
+      uid: "{{ uid }}"
+    response_variable: mail
+  - variables:
+      email_payload: |-
+        {{ {
+          "sender": trigger.event.data.sender | default(""),
+          "subject": mail.subject | default(""),
+          "date": (trigger.event.data.date|string) | default(""),
+          "body": mail.text | default("")
+        } | to_json }}
+  - action: rest_command.llm_email_triage
+    response_variable: triage
+    data:
+      email_payload: "{{ email_payload }}"
+  - variables:
+      triage_obj: "{{ triage['content']['message']['content'] | from_json }}"
+  - variables:
+      cat: "{{ (triage_obj.category | lower) | default('unknown') }}"
+      counters:
+        personal: counter.emails_personal
+        transaction: counter.emails_transaction
+        calendar: counter.emails_calendar
+        newsletter: counter.emails_newsletter
+        promo: counter.emails_promo
+        alert: counter.emails_alert
+        receipt: counter.emails_receipt
+        support: counter.emails_support
+        unknown: counter.emails_unknown
+  - data:
+      entity_id: "{{ counters.get(cat, 'counter.email_unknown') }}"
+    action: counter.increment
+  - action: notify.mobile_app_cph2671
+    data:
+      title: "[{{ triage_obj.priority }}] {{ mail.subject }}"
+      message: "{{ triage_obj.summary }}"
+      data:
+        actions:
+          - action: ARCHIVE
+            title: Archive
+          - action: SNOOZE_1H
+            title: Snooze 1h
+        action_data:
+          entry_id: "{{ entry }}"
+          uid: "{{ uid }}"
+mode: parallel
+variables:
+  uid: "{{ trigger.event.data.uid }}"
+  entry: "{{ trigger.event.data.entry_id }}"
