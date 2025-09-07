@@ -1,0 +1,510 @@
+esphome:
+  name: nowplayingdisplay
+  friendly_name: NowPlayingDisplay
+  platformio_options:
+    build_flags: "-DBOARD_HAS_PSRAM"
+    board_build.esp-idf.memory_type: qio_opi
+    board_build.flash_mode: dio
+  on_boot:
+    priority: 600
+    then:
+      - lambda: |-
+          uint8_t cmd[1] = { 0x10 };
+          id(bus_a).write(0x30, cmd, 1);  
+
+esp32:
+  board: esp32-s3-devkitc-1
+  flash_size: 16MB
+  cpu_frequency: 240MHz
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: y
+      CONFIG_ESP32S3_DATA_CACHE_64KB: y
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: y
+      CONFIG_SPIRAM_RODATA: y
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+touchscreen:
+  platform: gt911
+  id: touch
+  address: 0x5D
+  i2c_id: bus_a
+
+i2c:
+  sda: 15
+  scl: 16
+  scan: true
+  id: bus_a
+
+# Enable logging
+logger:
+
+time:
+  - platform: homeassistant
+    id: hass_time
+    on_time:
+      - seconds: /1
+        then:
+          - script.execute: update_date_time_label
+
+http_request:
+  verify_ssl: false
+
+# URL here is a placeholder, as it's updated based on what's playing
+online_image:
+  - url: "http://192.168.1.70:8123/spotify.png"
+    id: spotify_image_downloader
+    format: JPEG
+    resize: 200x200
+    transparency: alpha_channel
+    type: RGB565
+    on_download_finished:
+      - lvgl.image.update:
+          id: spotify_display
+          src: spotify_image_downloader
+
+substitutions:
+  play: "\uF04B"
+  pause: "\uF04C"
+  prev: "\uF048"
+  next: "\uF051"
+
+  color_grey: "0xA0A0A0"
+  color_warn: "0xFFA000"
+  color_ok:   "0x44C767"
+  color_white: "0xFFFFFF"
+
+  # Set your Spotify media_player here
+  spotify_entity: media_player.spotify
+
+text_sensor:
+  - platform: homeassistant
+    id: ts_song
+    entity_id: sensor.spotify_details
+    attribute: spotify_song
+    on_value:
+      - script.execute: ui_update_title_artist
+
+  - platform: homeassistant
+    id: ts_artist
+    entity_id: sensor.spotify_details
+    attribute: spotify_artist
+    on_value:
+      - script.execute: ui_update_title_artist
+
+  - platform: homeassistant
+    id: ts_state
+    entity_id: sensor.spotify_details
+    attribute: spotify_state
+    on_value:
+      - script.execute: ui_update_play_state
+
+  # roast text toggle in HA
+  - platform: homeassistant
+    id: ts_roast
+    entity_id: input_text.now_playing_roast
+    on_value:
+      - script.execute: ui_update_roast
+
+  - platform: homeassistant
+    id: address
+    entity_id: sensor.spotify_details
+    attribute: image
+    on_value:
+      - script.execute: ui_update_title_artist
+
+binary_sensor:
+  - platform: homeassistant
+    id: roast_enabled
+    entity_id: input_boolean.live_roast_enabled
+    on_state:
+      - script.execute: ui_update_roast
+
+
+font: !include
+  file: fonts/fonts.yaml
+  vars:
+    text_sm: 14
+    text_md: 18
+    text_lg: 22
+    text_xl: 26
+    text_xxl: 30
+    icons_sm: 18
+    icons_md: 24
+    icons_lg: 32
+    icons_xl: 40
+    icons_xxl: 48
+
+lvgl:
+  style_definitions:
+    - id: style_menu_button
+      align: CENTER
+      bg_opa: TRANSP
+      shadow_opa: TRANSP
+      radius: 75
+      outline_width: 1
+      width: 56
+      height: 56
+      border_color: 0x000000
+    - id: style_menu_button_label
+      align: CENTER
+      y: 3
+      text_font: roboto_md
+    - id: style_circle_button
+      bg_opa: TRANSP
+      radius: 75
+      outline_width: 1
+      width: 50
+      height: 50
+      border_color: 0x000000
+    - id: style_mode_button
+      bg_opa: TRANSP
+      radius: 50
+      outline_width: 1
+      height: 35
+      width: 60
+      align: BOTTOM_MID
+      border_color: 0x000000
+    - id: style_circle_label
+      align: center
+      y: 2
+      text_align: center
+      text_font: roboto_md
+      border_color: 0x000000
+  default_font: roboto_md
+
+  gradients:
+    - id: green_grad
+      direction: ver
+      dither: none
+      stops:
+        - color: 0x44C767
+          position: 0
+        - color: 0x5CBF2A
+          position: 255
+
+  theme:
+    button:
+      scroll_on_focus: false
+      border_width: 0
+      width: 96
+      height: 56
+      bg_grad: green_grad
+      radius: 28
+
+  top_layer:
+    widgets:
+      - label:
+          id: date_time_label
+          text: "Connecting…"
+          align: TOP_LEFT
+          x: 12
+          y: 10
+          text_align: LEFT
+          text_color: ${color_white}
+
+      - label:
+          id: ha_status_icon_label
+          align: TOP_RIGHT
+          x: -12
+          y: 10
+          text_align: right
+          text_color: ${color_warn}
+          text: "Wi-Fi?"
+
+  pages:
+    - id: splash
+      skip: true
+      on_load:
+        - script.execute: go_home
+
+    - id: home
+      width: 100%
+      bg_color: 0x000000
+      bg_grad: green_grad
+      bg_opa: COVER
+      widgets:
+        - obj:
+            align: CENTER
+            width: 760
+            height: 420
+            bg_color: 0x000000
+            border_color: 0x000000
+            layout:
+              type: flex
+              flex_flow: row
+              flex_align_main: space_between
+              flex_align_cross: center
+              pad_column: 10
+            widgets:
+              # Left column
+              - obj:
+                  width: 450
+                  height: 400
+                  pad_all: 0
+                  border_color: 0x000000
+                  bg_color: 0x000000
+                  layout:
+                    type: flex
+                    flex_flow: column
+                    flex_align_main: start
+                    flex_align_cross: start
+                    pad_row: 10
+                    pad_column: 12
+                  widgets:
+                    - obj:
+                        width: 275
+                        height: 275
+                        bg_color: 0x000000
+                        border_color: 0x000000
+                        layout:
+                          type: flex
+                          flex_flow: column
+                          flex_align_main: center # center vertically within this column
+                          flex_align_cross: center # center horizontally within this column
+                        widgets:
+                          - image:
+                              id: spotify_display
+                              src: spotify_image_downloader
+                              width: 200
+                              height: 200
+
+                    - label:
+                        id: spotify_title
+                        text: ""
+                        text_color: 0xFFFFFF
+                        text_font: roboto_lg
+                        long_mode: scroll
+                        width: 420
+                    - label:
+                        id: spotify_track
+                        text: ""
+                        text_color: 0xDDDDDD
+                        text_font: roboto_md
+                        long_mode: wrap
+                        width: 420
+                    - label:
+                        id: roast_label
+                        text: ""
+                        hidden: true
+                        text_color: 0xFFCCCC
+                        text_font: roboto_sm
+                        long_mode: scroll
+                        width: 420
+                    
+              # Right column
+              - obj:
+                  bg_color: 0x000000
+                  width: 300
+                  border_color: 0x000000
+                  layout:
+                    type: flex
+                    flex_flow: row
+                    flex_align_main: center
+                    flex_align_cross: center
+                    pad_column: 28
+                  widgets:
+                    - button:
+                        id: prev_btn
+                        styles: [style_circle_button]
+                        on_click:
+                          - homeassistant.service:
+                              service: media_player.media_previous_track
+                              data:
+                                entity_id: ${spotify_entity}
+                        widgets:
+                          - label:
+                              text: ${prev}
+                              text_font: montserrat_30
+                              align: center
+                    - button:
+                        id: play_pause_button
+                        styles: [style_circle_button]
+                        on_click:
+                          - homeassistant.service:
+                              service: media_player.media_play_pause
+                              data:
+                                entity_id: ${spotify_entity}
+                        widgets:
+                          - label:
+                              id: play_pause_button_text
+                              text: ${play}
+                              text_font: montserrat_30
+                              align: center
+                    - button:
+                        id: next_btn
+                        styles: [style_circle_button]
+                        on_click:
+                          - homeassistant.service:
+                              service: media_player.media_next_track
+                              data:
+                                entity_id: ${spotify_entity}
+                        widgets:
+                          - label:
+                              text: ${next}
+                              text_font: montserrat_30
+                              align: center
+
+
+script:
+  - id: ui_update_title_artist
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return id(ts_artist).state.empty() && id(ts_song).state.empty();
+          then:
+            - lvgl.label.update:
+                id: spotify_track
+                text: "Nothing playing!"
+            - lvgl.label.update:
+                id: spotify_title
+                text: ""
+          else:
+            - lvgl.label.update:
+                id: spotify_track
+                text:
+                  format: "%s"
+                  args: [ 'id(ts_artist).state.c_str()' ]
+            - lvgl.label.update:
+                id: spotify_title
+                text:
+                  format: "%s"
+                  args: [ 'id(ts_song).state.c_str()' ]
+            # Change the URL to be your HA instance
+            - online_image.set_url:
+                id: spotify_image_downloader
+                url: !lambda |-
+                 return std::string("http://192.168.1.70:8123") + id(address).state;
+
+  - id: ui_update_play_state
+    then:
+      - if:
+          condition:
+            lambda: |-
+              auto s = id(ts_state).state;
+              for (auto &c : s) c = tolower(c);
+              return s.find("playing") != std::string::npos;
+          then:
+            - lvgl.label.update:
+                id: play_pause_button_text
+                text: ${pause}
+          else:
+            - lvgl.label.update:
+                id: play_pause_button_text
+                text: ${play}
+
+
+  - id: ui_update_roast
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return id(roast_enabled).state && !id(ts_roast).state.empty();
+          then:
+            - lvgl.label.update:
+                id: roast_label
+                text:
+                  format: "%s"
+                  args: [ 'id(ts_roast).state.c_str()' ]
+            - lvgl.obj.update:
+                id: roast_label
+                hidden: false
+          else:
+            - lvgl.obj.update:
+                id: roast_label
+                hidden: true
+
+  - id: update_date_time_label
+    then:
+      - lvgl.label.update:
+          id: date_time_label
+          text: !lambda |-
+            static const char * const day_names[] = {"SUN","MON","TUE","WED","THU","FRI","SAT"};
+            static char buf[24];
+            auto now = id(hass_time).now();
+            int hour12 = now.hour % 12;
+            hour12 = hour12 ? hour12 : 12;
+            snprintf(buf, sizeof(buf), "%s %d:%02d:%02d%s", day_names[now.day_of_week-1], hour12, now.minute, now.second, now.hour >= 12 ? "PM" : "AM");
+            return buf;
+
+  - id: go_home
+    then:
+      - lvgl.page.show: home
+
+display:
+  - platform: rpi_dpi_rgb
+    id: main_display
+    color_order: RGB
+    invert_colors: false
+    update_interval: never
+    auto_clear_enabled: false
+    dimensions:
+      width: 800
+      height: 480
+    de_pin: 42
+    hsync_pin: 40
+    vsync_pin: 41
+    pclk_pin: 39
+    pclk_frequency: 20MHz
+    hsync_pulse_width: 4
+    hsync_front_porch: 8
+    hsync_back_porch: 8
+    vsync_pulse_width: 4
+    vsync_front_porch: 8
+    vsync_back_porch: 8
+    data_pins:
+      red:
+        - 7
+        - 17
+        - 18
+        - 3
+        - 46
+      green:
+        - 9
+        - 10
+        - 11
+        - 12
+        - 13
+        - 14
+      blue:
+        - 21
+        - 47
+        - 48
+        - 45
+        - 38
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: ""
+  on_client_connected:
+    - lvgl.label.update:
+        id: ha_status_icon_label
+        text: ""
+        text_color: ${color_ok}
+  on_client_disconnected:
+    - lvgl.label.update:
+        id: ha_status_icon_label
+        text: "Wi-Fi?"
+        text_color: ${color_warn}
+
+ota:
+  - platform: esphome
+    password: ""
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Nowplayingroast Fallback Hotspot"
+    password: ""
+
+captive_portal:
+    
