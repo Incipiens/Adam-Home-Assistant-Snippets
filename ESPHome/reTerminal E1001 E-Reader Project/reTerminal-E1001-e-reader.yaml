@@ -1,0 +1,470 @@
+substitutions:
+  ha_url_api: "http://192.168.2.3:8123/api/template"
+
+globals:
+  - id: mode_reading  # 0=list, 1=reading, dictates basically all operations
+    type: int
+    restore_value: true
+    initial_value: '0'
+
+  - id: article_index
+    type: int
+    restore_value: true
+    initial_value: '0'
+
+  - id: page_index
+    type: int
+    restore_value: true
+    initial_value: '0'
+
+  - id: page_text
+    type: std::string
+    restore_value: false
+    initial_value: ""
+
+  - id: selected_in_list # cursor in list mode, global tracking of highlighted
+    type: int
+    restore_value: true
+    initial_value: '0'
+
+  - id: char_page_size # must match psize in HA REST template calls
+    type: int
+    restore_value: true
+    initial_value: '1100'
+
+esphome:
+  name: reterminal-e1001
+  friendly_name: reTerminal E1001
+  platformio_options:
+    build_flags: "-DBOARD_HAS_PSRAM"
+    board_build.arduino.memory_type: qio_opi
+  on_boot:
+    priority: -100
+    then:
+      - script.execute: fetch_page
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+# Enable logging
+logger:
+
+# Green button
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO3         
+      mode: INPUT_PULLUP
+      inverted: true
+    id: button_1
+    name: "Button 1"
+    on_press:
+      then:
+        - lambda: |-
+            if (id(mode_reading) == 0) {
+              // enter reading mode on selected article
+              id(article_index) = id(selected_in_list);
+              id(page_index) = 0;
+              id(mode_reading) = 1;
+              id(fetch_page).execute();
+            } else {
+              // leave reading mode back to list
+              id(mode_reading) = 0;
+              id(page_index) = 0;
+              id(fetch_page).execute();
+            }
+        - component.update: epaper_display
+        
+    # Right white button
+  - platform: gpio
+    pin:
+      number: GPIO4          
+      mode: INPUT_PULLUP
+      inverted: true
+    id: button_2
+    name: "Button 2"
+    on_press:
+      then:
+        - lambda: |-
+            if (id(mode_reading) == 0) {
+              id(selected_in_list) = id(selected_in_list) + 1;
+              id(page_index) = 0;
+              id(fetch_page).execute();
+            } else {
+              id(page_index) = id(page_index) + 1;
+              id(fetch_page).execute();
+            }
+        - component.update: epaper_display
+        
+    # Left white button
+  - platform: gpio
+    pin:
+      number: GPIO5           
+      mode: INPUT_PULLUP
+      inverted: true
+    id: button_3
+    name: "Button 3"
+    on_press:
+      then:
+        - lambda: |-
+            if (id(mode_reading) == 0) {
+              id(selected_in_list) = std::max(0, id(selected_in_list) - 1);
+              id(page_index) = 0;
+              id(fetch_page).execute();
+            } else {
+              id(page_index) = std::max(0, id(page_index) - 1);
+              id(fetch_page).execute();
+            }
+        - component.update: epaper_display
+
+font:
+  - file: gfonts://Roboto
+    id: roboto
+    size: 23
+
+http_request:
+  useragent: esphome-reterminal
+  timeout: 15s
+  verify_ssl: false
+  buffer_size_rx: 32768
+  buffer_size_tx: 32768
+
+
+
+script:
+  - id: fetch_page
+    mode: restart
+    then:
+      - if:
+          condition:
+            lambda: 'return id(mode_reading) == 0;'
+          then:
+            # list mode
+            - http_request.post:
+                url: "${ha_url_api}"
+                request_headers:
+                  Authorization: !secret ha_bearer   # takes the form of "Bearer <token>"
+                  Content-Type: application/json
+                json: |-
+                  root["template"] = R"JINJA(
+                    {%- set feed = feed | default('sensor.homeassistant_feed') -%}
+                    {%- set entries = state_attr(feed, 'entries') or [] -%}
+                    {%- set sel = sel | int(0) -%}
+                    {%- set n = [entries|length, 10]|min -%}
+                    {%- if n == 0 -%}
+                    [no feed or no entries]
+                    {%- else -%}
+                    {%- for i in range(0, n) -%}
+                    {{ '>' if i == sel else ' ' }} {{ i+1 }}. {{ (entries[i].title | default('')) }}
+                    {%- if not loop.last %}\n{%- endif -%}
+                    {%- endfor -%}
+                    {%- endif -%}
+                  )JINJA";
+                  auto vars = root.createNestedObject("variables");
+                  vars["feed"] = "sensor.homeassistant_feed";
+                  vars["sel"]  = (int) id(selected_in_list);
+                capture_response: true
+                on_response:
+                  then:
+                    - if:
+                        condition:
+                          lambda: 'return response->status_code == 200;'
+                        then:
+                          - lambda: 'id(page_text) = body;'
+                          - component.update: epaper_display
+                        else:
+                          - lambda: |-
+                              ESP_LOGE("rss", "Template POST failed: %d (%u ms). Body:\n%s",
+                                       response->status_code, response->duration_ms, body.c_str());
+                              id(page_text) = "[http " + to_string(response->status_code) + "]";
+
+          else:
+            # reading mode
+            - http_request.post:
+                url: "${ha_url_api}"
+                request_headers:
+                  Authorization: !secret ha_bearer
+                  Content-Type: application/json
+                json: |-
+                  root["template"] = R"JINJA(
+                    {%- set feed = feed | default('sensor.homeassistant_feed') -%}
+                    {%- set entries = state_attr(feed, 'entries') or [] -%}
+                    {%- set idx = idx | int(0) -%}
+                    {%- set page = page | int(0) -%}
+                    {%- set psize = psize | int(1100) -%}
+                    {%- if entries|length == 0 -%}
+                    [no feed or no entries]
+                    {%- elif 0 <= idx < entries|length -%}
+                      {%- set e = entries[idx] -%}
+                      {%- set content = '' -%}
+                      {%- if e.content is defined -%}
+                        {%- if e.content is string -%}
+                          {%- set content = e.content -%}
+                        {%- elif e.content is sequence and (e.content|length) > 0 -%}
+                          {%- set c0 = e.content[0] -%}
+                          {%- if c0.value is defined -%}
+                            {%- set content = c0.value -%}
+                          {%- else -%}
+                            {%- set content = c0|string -%}
+                          {%- endif -%}
+                        {%- elif e.content.value is defined -%}
+                          {%- set content = e.content.value -%}
+                        {%- endif -%}
+                      {%- endif -%}
+                      {%- set summary = e.summary | default(e.description | default('')) -%}
+                      {%- set raw = (content ~ ' ' ~ summary) -%}
+                      {%- set raw = raw | striptags | replace('&nbsp;',' ') | replace('&amp;','&') -%}
+                      {%- set title = e.title | default('') -%}
+                      {%- set body = (title ~ '\n\n' ~ raw) | replace('\r','') -%}
+                      {%- set start = page * psize -%}
+                      {%- set end = start + psize -%}
+                      {%- if start >= body|length -%}
+                        [end]
+                      {%- else -%}
+                        {{ body[start:end] }}
+                      {%- endif -%}
+                    {%- else -%}
+                    [no article]
+                    {%- endif -%}
+                  )JINJA";
+                  auto vars = root.createNestedObject("variables");
+                  vars["feed"]  = "sensor.homeassistant_feed";
+                  vars["idx"]   = (int) id(article_index);
+                  vars["page"]  = (int) id(page_index);
+                  vars["psize"] = (int) id(char_page_size);
+                capture_response: true
+                on_response:
+                  then:
+                    - if:
+                        condition:
+                          lambda: 'return response->status_code == 200;'
+                        then:
+                          - lambda: |-
+                              if (body == "[end]") {
+                                id(page_index) = std::max(0, id(page_index) - 1);
+                              } else {
+                                id(page_text) = body;
+                              }
+                        else:
+                          - lambda: |-
+                              ESP_LOGE("rss", "Template POST failed: %d (%u ms). Body:\n%s",
+                                       response->status_code, response->duration_ms, body.c_str());
+                              id(page_text) = "[http " + to_string(response->status_code) + "]";
+
+# LED configuration
+output:
+  - platform: gpio
+    pin: GPIO6
+    id: led_output
+    inverted: true
+
+light:
+  - platform: binary
+    name: "Onboard LED"
+    output: led_output
+    id: onboard_led
+
+spi:
+  clk_pin: GPIO7
+  mosi_pin: GPIO9
+
+# Display inverted, so using color_black with "white" RGB values for text
+color:
+  id: color_black
+  red: 100%
+  green: 100%
+  blue: 100%
+  
+
+display:
+  - platform: waveshare_epaper
+    id: epaper_display
+    model: 7.50inv2p # If this doesn't work, change to "inv2" however this should reduce full refreshes
+    cs_pin: GPIO10
+    dc_pin: GPIO11
+    reset_pin:
+      number: GPIO12
+      inverted: false
+    busy_pin:
+      number: GPIO13
+      inverted: true
+    update_interval: never
+    lambda: |-
+      const int margin = 10;
+      const int line_h = 25;
+      const int max_lines = 14;
+      const int w = it.get_width();
+      const int h = it.get_height();
+      
+
+      // Read page text from the rss sensor 
+      std::string raw = id(page_text);
+      if (raw.empty()) raw = "Loading...";
+
+      // Footer
+      auto draw_footer = [&]() {
+        char footer[64];
+        if (id(mode_reading) == 0) {
+          sprintf(footer, "List Selected: %d", id(selected_in_list)+1);
+        } else {
+          sprintf(footer, "Reading Article: %d  Page: %d", id(article_index)+1, id(page_index)+1);
+        }
+        it.printf(margin, h - line_h - 2, id(roboto), color_black, "%s", footer);
+      };
+
+      if (id(mode_reading) == 0) {
+        // list item
+        // We expect to see "> 1. Title..." or "  2. Title..." so split by '\n' which we filter, along with \r. 
+        // HAOS is Linux-based (\r comes from Windows+DOS) but good to clear just in case
+        std::string page_text = raw;
+        std::vector<std::string> lines;
+        size_t start = 0, end;
+        int y_cursor = 10;
+
+        std::string s = raw;
+
+        // adapted from my XIAO ePaper Panel  https://github.com/Incipiens/Adam-Home-Assistant-Snippets/blob/main/ESPHome/E-Ink%20Dashboard/eink-display-1.yaml
+
+        for (size_t pos = 0; (pos = s.find("\\n", pos)) != std::string::npos; ) {
+          s.replace(pos, 2, "\n");
+          pos += 1;
+        }
+
+
+        s.erase(std::remove(s.begin(), s.end(), '\r'), s.end());
+
+        while ((end = s.find('\n', start)) != std::string::npos) {
+          std::string line = s.substr(start, end - start);
+          if (line.length() > 70) line = line.substr(0, 70) + "...";
+          // LOgging for debugging, can comment out if not needed
+          ESP_LOGD("rss", "LINE: %s", line.c_str());
+          it.printf(margin, y_cursor, id(roboto), color_black, "%s", line.c_str());
+          y_cursor += line_h;
+          start = end + 1;
+        }
+
+        
+        //printing last
+        if (start < s.size()) {
+          std::string line = s.substr(start);
+          if (line.length() > 70) line = line.substr(0, 70) + "...";
+          ESP_LOGD("rss", "TAIL: %s", line.c_str());
+          it.printf(margin, y_cursor, id(roboto), color_black, "%s", line.c_str());
+          y_cursor += line_h;
+        }
+
+        draw_footer();
+        return;
+      }
+
+      // reading
+      const int max_w_chars = 70; // hard coded wrap width
+      const int text_top = margin;
+      const int text_bottom = h - line_h - 6;
+      const int rows_per_page = (text_bottom - text_top) / line_h;
+
+      // normalizing input
+      std::string s = raw;
+      // turn string literal "\n" to real newlines
+      for (size_t pos = 0; (pos = s.find("\\n", pos)) != std::string::npos; ) {
+        s.replace(pos, 2, "\n");
+        pos += 1;
+      }
+
+      // drop windows/DOS carriage return
+      s.erase(std::remove(s.begin(), s.end(), '\r'), s.end());
+
+      // caching for page indexer
+      static std::string cache_key;
+      static int cache_rows = 0;
+      static int cache_max_w = 0;
+      static std::vector<std::string> wrapped;
+
+      auto wrap_lines = [&](const std::string& in, int maxw) {
+        std::vector<std::string> out;
+        size_t i = 0;
+        while (i < in.size()) {
+          if (in[i] == '\n') { out.emplace_back(""); i++; continue; }
+
+          size_t hard_limit = std::min(i + (size_t)maxw, in.size());
+          size_t break_pos = hard_limit;
+
+          // prefer last space before limit
+          size_t last_space = in.find_last_of(' ', hard_limit - 1);
+          if (last_space != std::string::npos && last_space >= i) {
+            break_pos = last_space; 
+          } else {
+            size_t next_space = in.find(' ', hard_limit);
+            if (next_space != std::string::npos) {
+              break_pos = next_space;
+            } else {
+              break_pos = in.size();
+            }
+          }
+
+          // trim trailing space
+          std::string line = in.substr(i, break_pos - i);
+          while (!line.empty() && line.back() == ' ') line.pop_back();
+          out.push_back(line);
+
+          i = break_pos;
+          while (i < in.size() && in[i] == ' ') i++;
+        }
+        return out;
+      };
+
+      // wrap only when content or layout changed
+      if (cache_key != s || cache_rows != rows_per_page || cache_max_w != max_w_chars) {
+        wrapped = wrap_lines(s, max_w_chars);
+        cache_key = s;
+        cache_rows = rows_per_page;
+        cache_max_w = max_w_chars;
+      }
+
+      // paging
+      int total_pages = wrapped.empty() ? 1 : (int)((wrapped.size() + rows_per_page - 1) / rows_per_page);
+
+      // clamping page index
+      int page = id(page_index);
+      if (page < 0) page = 0;
+      if (page >= total_pages) page = total_pages - 1;
+      id(page_index) = page; 
+
+      int start_line = page * rows_per_page;
+      int end_line = std::min((int)wrapped.size(), start_line + rows_per_page);
+
+      // drawing to display
+      int y = text_top;
+      for (int i = start_line; i < end_line; ++i) {
+        it.printf(margin, y, id(roboto), color_black, "%s", wrapped[i].c_str());
+        y += line_h;
+      }
+
+      draw_footer();
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "x"
+
+ota:
+  - platform: esphome
+    password: "x"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Reterminal-E1001"
+    password: "x"
+
+captive_portal:
+    

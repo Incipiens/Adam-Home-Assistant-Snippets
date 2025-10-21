@@ -40,6 +40,12 @@ The dashboard is designed to be used with the [XIAO 7.5-inch ePaper Panel](https
 
 ### Elecrow CrowPanel Advance 7.0-HMI ESP32 AI Display
 
-This is a voice assistant project that ports the ESP32-S3-BOX-3 ready-made project to the Elecrow CrowPaneL Advance 7.0-HMI ESP32 AI Display. It has full wake word and voice functionality. The long-term goal is complete feature parity with the ESP32-S3-BOX-3 project. It also sends a esphome.tts_uri event to Home Assistant with the URL for the audio response, thanks to the work done by [@formatBCE](https://github.com/formatBCE). This assistant is currently a work in progress, and will be detailed on XDA in the future. It requires the S1 and S0 switches to be set to 0, so that both MIC and SPK are enabled. 
+This is a voice assistant project that ports the ESP32-S3-BOX-3 ready-made project to the Elecrow CrowPaneL Advance 7.0-HMI ESP32 AI Display. It has full wake word and voice functionality. The long-term goal is complete feature parity with the ESP32-S3-BOX-3 project. It also sends a esphome.tts_uri event to Home Assistant with the URL for the audio response, thanks to the work done by [@formatBCE](https://github.com/formatBCE). This assistant is currently a work in progress, and has been [documented on XDA](https://www.xda-developers.com/built-google-home-hub-replacement-esp32-display/). It requires the S1 and S0 switches to be set to 0, so that both MIC and SPK are enabled. 
 
-There are a number of improvements necessary to make this particular project more user-friendly, such as adding display brightness control and improving the speed of display updates. The next update will focus on switching the display to LVGL for better performance.
+There are a number of improvements necessary to make this particular project more user-friendly, such as adding display brightness control.
+
+### reTerminal E1001 E-Reader Project
+
+This is an eReader project built using the reTerminal E1001, designed to demonstrate how an ESP32-S3 can be the backbone of a Kindle-esque device. It uses the green button to switch between reading mode and regular mode, and the two white buttons move forward and back.
+
+It's a relatively janky setup that serves to demonstrate how, with a bit more polish, one could build a device like this using ESPHome. It pulls from a designated RSS feed and requires the Feedparser integration in Home Assistant.
