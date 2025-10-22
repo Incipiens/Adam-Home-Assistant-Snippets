@@ -1,0 +1,314 @@
+esphome:
+  name: reterminal-e1002
+  friendly_name: reTerminal E1002
+  platformio_options:
+    build_flags: "-DBOARD_HAS_PSRAM"
+    board_build.arduino.memory_type: qio_opi
+  on_boot:
+    priority: 600
+    then:
+      - output.turn_on: bsp_sd_enable
+      - output.turn_on: bsp_battery_enable
+      - delay: 200ms
+      - component.update: battery_voltage
+      - component.update: battery_level
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: arduino
+  
+
+mqtt:
+  id: mqtt_client
+  broker: 192.168.2.9  
+  port: 1883
+  on_connect:
+    then:
+      - if:
+          condition:
+            lambda: 'return id(image_index_sub).state.empty();'
+          then:
+            - mqtt.publish:
+                topic: esphome/gallery/image_index
+                payload: "1"
+                retain: true
+            - logger.log:
+                format: "Value after MQTT if/then: %d"
+                args: [ 'id(image_index_sub)' ]
+          else:
+          - logger.log:
+                format: "Didn't need if/then, value: %d"
+                args: [ 'id(image_index_sub)' ]
+
+  wait_for_connection: true
+
+text_sensor:
+  - platform: mqtt_subscribe
+    id: image_index_sub
+    topic: esphome/gallery/image_index
+    on_value:
+      then:
+        - lambda: |-
+            // Parse and clamp to 1..5
+            int v = atoi(id(image_index_sub).state.c_str());
+            if (v < 1 || v > 5) v = 1;
+            id(current_index) = v;
+        - logger.log:
+                format: "Received %d, setting current_index to %d"
+                args: [ 'id(image_index_sub)', 'id(current_index)' ]
+
+http_request:
+  verify_ssl: false
+  timeout: 10s
+  watchdog_timeout: 15s
+
+online_image:
+  - id: gallery_img
+    format: BMP
+    type: RGB
+    url: "http://192.168.2.3:8123/local/ai_images/placeholder.bmp"
+    on_download_finished:
+      - component.update: epaper_display
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+external_components:
+  - source: github://lublak/esphome@pull/1/head
+    components: [waveshare_epaper]
+    refresh: 1h
+
+i2s_audio:
+  - id: i2s0
+    i2s_bclk_pin: GPIO42     # PDM clock from schematic
+    i2s_lrclk_pin: GPIO2 
+
+
+
+# Deep-sleep, wake by GPIO4
+deep_sleep:
+  id: deep_sleep_1
+  run_duration: 2min
+  sleep_duration: 60min    
+  wakeup_pin: 
+    number: GPIO4 # Right white button
+    allow_other_uses: true
+    mode:
+      input: True
+      pulldown: True
+  wakeup_pin_mode: INVERT_WAKEUP
+
+
+spi:
+  clk_pin: GPIO7
+  mosi_pin: GPIO9
+i2c:
+  scl: GPIO20
+  sda: GPIO19
+
+
+globals:
+  - id: should_debug
+    type: bool
+    restore_value: no
+    initial_value: "true"
+
+  - id: current_index
+    type: int
+    initial_value: '1'
+
+
+sensor:
+  - platform: sht4x
+    temperature:
+      name: "Temperature"
+      id: temp_sensor
+    humidity:
+      name: "Relative Humidity"
+      id: hum_sensor
+  - platform: adc
+    pin: GPIO1
+    name: "Battery Voltage"
+    id: battery_voltage
+    update_interval: 60s
+    attenuation: 12db
+    filters:
+      - multiply: 2.0
+  - platform: template
+    name: "Battery Level"
+    id: battery_level
+    unit_of_measurement: "%"
+    icon: "mdi:battery"
+    device_class: battery
+    state_class: measurement
+    lambda: 'return id(battery_voltage).state;'
+    update_interval: 60s
+    filters:
+      - calibrate_linear:
+          - 4.15 -> 100.0
+          - 3.96 -> 90.0
+          - 3.91 -> 80.0
+          - 3.85 -> 70.0
+          - 3.80 -> 60.0
+          - 3.75 -> 50.0
+          - 3.68 -> 40.0
+          - 3.58 -> 30.0
+          - 3.49 -> 20.0
+          - 3.41 -> 10.0
+          - 3.30 -> 5.0
+          - 3.27 -> 0.0
+      - clamp:
+          min_value: 0
+          max_value: 100
+
+output:
+  - platform: gpio
+    pin: GPIO6
+    id: bsp_led
+    inverted: true
+  - platform: gpio
+    pin: GPIO16
+    id: bsp_sd_enable
+  - platform: gpio
+    pin: GPIO21
+    id: bsp_battery_enable
+
+# Onboard LED
+light:
+  - platform: binary
+    name: "Onboard LED"
+    output: bsp_led
+    id: onboard_led
+    
+binary_sensor:
+  - platform: gpio    # Next page
+    pin:
+      number: GPIO3
+      mode: INPUT_PULLUP
+      inverted: true
+    id: key1
+    name: "Key1"
+    on_press:
+      then:
+        - script.execute: cycle_image_now
+
+  - platform: gpio     # Prev page
+    pin:
+      number: GPIO5
+      mode: INPUT_PULLUP
+      inverted: true
+    id: key2
+    name: "Key2"
+    on_press:
+      then:
+        - script.execute: cycle_image_now
+
+  - platform: gpio     # Right white button
+    pin:
+      number: GPIO4
+      mode: INPUT_PULLUP
+      inverted: true
+      allow_other_uses: true
+    id: key3
+    name: "Key3"
+    on_press:
+      then:
+        - script.execute: cycle_image_now
+
+# Home Assistant time
+time:
+  - platform: homeassistant
+    id: ha_time
+
+script:
+  - id: cycle_image_now
+    mode: restart
+    then:
+      # Give MQTT a moment after wake to deliver the retained message (usually instant)
+      - delay: 200ms
+      - lambda: |-
+          // Clamp 1..5
+          if (id(current_index) < 1 || id(current_index) > 5) id(current_index) = 1;
+
+          char url[160];
+          snprintf(url, sizeof(url),
+                   "http://192.168.2.3:8123/local/ai_images/today__%d..bmp",
+                   id(current_index));
+          id(gallery_img).set_url(url);
+
+      - delay: 200ms
+      - component.update: gallery_img
+      - wait_until:
+          condition:
+            lambda: 'return id(gallery_img).is_ready();'
+          timeout: 60s
+
+      # Prepare and publish next index (retained), then sleep
+      - lambda: |-
+          int next = id(current_index) + 1;
+          if (next > 5) next = 1;
+          id(current_index) = next; 
+      - mqtt.publish:
+          topic: esphome/gallery/image_index
+          payload: !lambda |-
+            char buf[8];
+            sprintf(buf, "%d", id(current_index));
+            return std::string(buf);
+          retain: true
+
+      - if:
+          condition:
+            lambda: 'return !id(should_debug);'
+          then:
+            - deep_sleep.enter: deep_sleep_1
+
+display:
+  - platform: waveshare_epaper
+    id: epaper_display
+    model: 7.30in-e
+    cs_pin: GPIO10
+    dc_pin: GPIO11
+    reset_pin:
+      number: GPIO12
+      inverted: false
+    busy_pin:
+      number: GPIO13
+      inverted: true
+    update_interval: never
+    lambda: |-
+      // Draw the downloaded PNG full screen (800x480 for E10xx)
+      it.image(0, 0, id(gallery_img));
+
+# Enable logging
+logger:
+  
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "x"
+  on_client_connected: 
+    then:
+      - script.execute: cycle_image_now
+
+ota:
+  - platform: esphome
+    password: "x"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret x
+  on_connect: 
+    then:
+      - component.update: gallery_img
+      - logger.log: "x"
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Reterminal-E1002"
+    password: "cxiB2FJ71eRB"
+
+captive_portal:
+    

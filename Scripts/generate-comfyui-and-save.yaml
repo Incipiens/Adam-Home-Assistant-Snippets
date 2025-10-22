@@ -1,0 +1,21 @@
+sequence:
+  - action: ai_task.generate_image
+    metadata: {}
+    data:
+      task_name: Generate Daily
+      instructions: >-
+        City landscape, cyberpunk esque, towering buildings. It's night time,
+        the moon is visible. The weather is {{ states('weather.pirateweather')
+        }}. Pixel art, retro style
+      entity_id: ai_task.sd3_5
+    response_variable: ai_resp
+  - variables:
+      ai_url: "{{ ai_resp.url }}"
+      absolute_url: http://homeassistant.local:8123{{ ai_url }}
+  - action: downloader.download_file
+    data:
+      overwrite: false
+      url: "{{ absolute_url }}"
+      filename: today_{{ index }}.png
+alias: Generate ComfyUI
+description: ""

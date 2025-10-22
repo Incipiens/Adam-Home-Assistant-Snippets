@@ -1,0 +1,16 @@
+alias: Image quantize
+description: ""
+triggers:
+  - trigger: state
+    entity_id:
+      - event.created
+      - event.folder_watcher_config_www_ai_images
+conditions: []
+actions:
+  - action: pyscript.quantize_bmp
+    metadata: {}
+    data:
+      src: /config/www/ai_images/{{ trigger.to_state.attributes.file }}
+      dst_dir: /config/www/ai_images/
+      dither: true
+mode: single
