@@ -97,7 +97,11 @@ script:
           data:
             device: ${device_name}
             message: "Someone is at the front door!"
-            timestamp: !lambda 'return id(uptime_sensor).state;'
+            timestamp: !lambda 'return id(uptime_sensor).state;' 
+
+      # I forgot to update the above to use the actual time, and not uptime. You can easily do that with ESPHome
+      # by pulling from HA.
+    
       
       # Requires enabling controlling HA from the ESPHome integration
       - homeassistant.service:
