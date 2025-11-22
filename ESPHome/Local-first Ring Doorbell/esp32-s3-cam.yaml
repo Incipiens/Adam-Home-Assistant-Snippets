@@ -1,0 +1,143 @@
+substitutions:
+  device_name: doorbell-camera
+  friendly_name: "Front Door Camera"
+
+esphome:
+  name: esp32-s3-cam
+  friendly_name: ESP32-S3-CAM
+  platformio_options:
+    build_flags: -DBOARD_HAS_PSRAM
+    board_build.arduino.memory_type: qio_opi
+    board_build.f_flash: 80000000L
+    board_build.flash_mode: qio
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+web_server:
+  port: 80
+
+### I2C
+i2c:
+  - id: camera_i2c
+    sda: GPIO4
+    scl: GPIO5
+
+esp32_camera:
+  external_clock:
+    pin: GPIO15
+    frequency: 20MHz
+  i2c_id: camera_i2c
+  data_pins: [GPIO11, GPIO9, GPIO8, GPIO10, GPIO12, GPIO18, GPIO17, GPIO16]
+  vsync_pin: GPIO6
+  href_pin: GPIO7
+  pixel_clock_pin: GPIO13
+  
+  # Use DRAM for frame buffer on ESP32-S3
+  frame_buffer_location: DRAM
+  
+  name: CAM
+  resolution: 1024x768
+  jpeg_quality: 10
+  max_framerate: 10fps
+  
+  # Brightness and contrast adjustments
+  # Range is -2 to 2
+  brightness: 1
+  contrast: 0
+  saturation: 0
+  
+  # Flip/mirror if needed based on camera mounting
+  # I needed a vertical flip but not horizontal
+  vertical_flip: true
+  horizontal_mirror: false
+  
+  aec_mode: auto
+  wb_mode: auto
+
+
+# Doorbell button input
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO1
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    name: "${friendly_name} Button"
+    id: doorbell_button
+    filters:
+      - delayed_on: 50ms
+    on_press:
+      - script.execute: doorbell_pressed
+
+  - platform: status
+    name: "${friendly_name} Status"
+
+light:
+  - platform: status_led
+    name: "${friendly_name} Status LED"
+    pin: GPIO48
+
+script:
+  - id: doorbell_pressed
+    mode: single  # Prevent multiple simultaneous executions
+    then:
+      # Play doorbell chime
+      # Requires a buzzer https://esphome.io/components/rtttl/
+      # Example below is mario
+      #- rtttl.play: 'mario:d=4,o=5,b=100:16e6,16e6,32p,8e6,16c6,8e6,8g6,8p,8g,8p,8c6,16p,8g,16p,8e,16p,8a,8b,16a#,8a,16g.,16e6,16g6,8a6,16f6,8g6,8e6,16c6,16d6,8b,16p,8c6,16p,8g,16p,8e,16p,8a,8b,16a#,8a,16g.,16e6,16g6,8a6,16f6,8g6,8e6,16c6,16d6,8b,8p,16g6,16f#6,16f6,16d#6,16p,16e6,16p,16g#,16a,16c6,16p,16a,16c6,16d6,8p,16g6,16f#6,16f6,16d#6,16p,16e6,16p,16c7,16p,16c7,16c7,p,16g6,16f#6,16f6,16d#6,16p,16e6,16p,16g#,16a,16c6,16p,16a,16c6,16d6,8p,16d#6,8p,16d6,8p,16c6
+      
+      # Send notification to Home Assistant
+      - homeassistant.event:
+          event: esphome.doorbell_pressed
+          data:
+            device: ${device_name}
+            message: "Someone is at the front door!"
+            timestamp: !lambda 'return id(uptime_sensor).state;'
+      
+      # Requires enabling controlling HA from the ESPHome integration
+      - homeassistant.service:
+          service: camera.snapshot
+          data:
+            entity_id: camera.esp32_s3_cam_cam
+            filename: /config/www/doorbell_snapshot_latest.jpg
+      
+      # Wait before allowing next doorbell press
+      - delay: 3s
+
+sensor:
+  - platform: uptime
+    name: "${friendly_name} Uptime"
+    id: uptime_sensor
+
+esp32_camera_web_server:
+  - port: 8080
+    mode: stream
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "x"
+
+ota:
+  - platform: esphome
+    password: "x"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Esp32-S3-Cam Fallback Hotspot"
+    password: "x"
+
+captive_portal:
+    

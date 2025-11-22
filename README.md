@@ -40,12 +40,27 @@ The dashboard is designed to be used with the [XIAO 7.5-inch ePaper Panel](https
 
 ### Elecrow CrowPanel Advance 7.0-HMI ESP32 AI Display
 
+
+![Image of the Elecrow CrowPanel Advance showing the ESPHome logo.](Images/elecrow-crowpanel-7-hmi-ai-home-hub-1.jpg)
+
 This is a voice assistant project that ports the ESP32-S3-BOX-3 ready-made project to the Elecrow CrowPaneL Advance 7.0-HMI ESP32 AI Display. It has full wake word and voice functionality. The long-term goal is complete feature parity with the ESP32-S3-BOX-3 project. It also sends a esphome.tts_uri event to Home Assistant with the URL for the audio response, thanks to the work done by [@formatBCE](https://github.com/formatBCE). This assistant is currently a work in progress, and has been [documented on XDA](https://www.xda-developers.com/built-google-home-hub-replacement-esp32-display/). It requires the S1 and S0 switches to be set to 0, so that both MIC and SPK are enabled. 
 
 There are a number of improvements necessary to make this particular project more user-friendly, such as adding display brightness control.
 
 ### reTerminal E1001 E-Reader Project
 
+![Image of the reTerminal E1001 showing a list of articles pulled from an RSS feed](Images/reterminal-e1001-kindle-1.jpg)
+
 This is an eReader project built using the reTerminal E1001, designed to demonstrate how an ESP32-S3 can be the backbone of a Kindle-esque device. It uses the green button to switch between reading mode and regular mode, and the two white buttons move forward and back.
 
 It's a relatively janky setup that serves to demonstrate how, with a bit more polish, one could build a device like this using ESPHome. It pulls from a designated RSS feed and requires the Feedparser integration in Home Assistant.
+
+This is documented on [XDA](https://www.xda-developers.com/built-own-basic-kindle-reterminal-e1001/).
+
+### Local-first Ring Doorbell alternative
+
+![Image of the ESP32-S3 with a camera module and wires connecting to a button](Images/esp32-ring-doorbell-1.jpg)
+
+This is a local-first Ring Doorbell alternative, showing the basics of how one could build their own video doorbell with an ESP32. This examples uses the ESP32-S3 and an OV2640 camera module, with reporting to Home Assistant, a button to serve as a doorbell, and support for snapshots saved in HA.
+
+This is documented on [XDA](https://www.xda-developers.com/built-local-first-ring-doorbell-esp32/).
