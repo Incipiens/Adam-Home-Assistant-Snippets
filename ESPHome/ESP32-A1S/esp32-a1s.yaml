@@ -1,0 +1,176 @@
+esphome:
+  name: esp32-a1s
+  friendly_name: ESP32-A1S
+
+esp32:
+  board: esp-wrover-kit
+  framework:
+    type: esp-idf
+
+# Enable logging
+logger:
+
+psram:
+
+
+microphone:
+  - platform: i2s_audio
+    id: i2smic
+    i2s_din_pin: GPIO35
+    adc_type: external
+    pdm: false
+
+i2c:
+  id: bus_a
+  sda: GPIO33
+  scl: GPIO32
+  frequency: 100kHz
+
+audio_dac:
+  - platform: es8388
+    i2c_id: bus_a
+    id: es8388_dac
+
+
+select:
+  - platform: es8388
+    es8388_id: es8388_dac
+    dac_output:
+      name: "DAC Output"
+    adc_input_mic:
+      name: "ADC Input MIC"
+
+switch:
+  - platform: gpio
+    pin: GPIO21
+    id: mute_switch
+    name: "AMP Switch"
+    restore_mode: ALWAYS_ON
+
+i2s_audio:
+  i2s_lrclk_pin: GPIO25
+  i2s_bclk_pin: GPIO27
+  i2s_mclk_pin: GPIO0
+  id: i2s_output
+
+media_player:
+  - platform: speaker
+    id: esp32_audio_kit_player
+    name: "ESP32 Audio Kit"
+    announcement_pipeline: 
+      speaker: speaker_id
+
+speaker:
+  - platform: i2s_audio
+    i2s_audio_id: i2s_output
+    sample_rate: 48000
+    id: speaker_id
+    i2s_dout_pin: GPIO26
+    bits_per_sample: 32bit
+    dac_type: external
+    channel: stereo
+    buffer_duration: 100ms
+    audio_dac: es8388_dac
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO39
+      inverted: true
+      mode:
+        input: true
+    name: "Jack Status"
+
+  - platform: gpio
+    pin:
+      number: GPIO036
+      inverted: true
+    name: "Key 1"
+    filters:
+      - delayed_off: 10ms
+
+  - platform: gpio
+    pin:
+      number: GPIO013
+      inverted: true
+    name: "Key 2"
+    filters:
+      - delayed_off: 10ms
+
+  - platform: gpio
+    pin:
+      number: GPIO019
+      inverted: true
+    name: "Key 3"
+    filters:
+      - delayed_off: 10ms
+
+  - platform: gpio
+    pin:
+      number: GPIO023
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    name: "Key 4"
+    filters:
+      - delayed_off: 10ms
+
+  - platform: gpio
+    pin:
+      number: GPIO018
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    name: "Key 5"
+    filters:
+      - delayed_off: 10ms
+
+  - platform: gpio
+    pin:
+      number: GPIO005
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    name: "Key 6"
+    filters:
+      - delayed_off: 10ms
+
+output:
+  - platform: ledc
+    pin: 
+      number: GPIO22
+      inverted: true
+    id: output_led
+
+light:
+  - platform: binary
+    name: "Red LED"
+    id: red_led
+    output: output_led
+    restore_mode: ALWAYS_OFF
+
+
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "x"
+
+ota:
+  - platform: esphome
+    password: "x"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Esp32-A1S Fallback Hotspot"
+    password: "x"
+
+captive_portal:
+    
