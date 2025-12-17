@@ -1,0 +1,589 @@
+# Sendspin metadata display for WT32-SC01 Plus
+# Modified from ESP32-S3 Box 3 configuration 
+# https://gist.githubusercontent.com/kahrendt/a86b20601f02df9f3861a48cedc98e17/raw/941be5c3c4d553dc589823aecbfe730dae99d229/esp32-s3-box-3-sendspin.yml
+# Display: 480x320 with MIPI SPI
+# Touchscreen: FT63X6
+# Uses Sendspin PR: https://github.com/esphome/esphome/pull/12284
+
+substitutions:
+  name: wt32-sc01-plus
+  friendly_name: WT32-SC01 Plus Sendspin
+  font_glyphsets: "GF_Latin_Core"
+  font_family: Figtree
+
+  mdi_pause_glyph: \U000F03E4
+  mdi_play_glyph: \U000F040A
+  mdi_skip_previous_glyph: \U000F04AE
+  mdi_skip_next_glyph: \U000F04AD
+
+  # Time to wait before verifying optimistic state changes match actual state
+  optimistic_state_correction_delay: 1000ms
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  min_version: 2025.5.0
+  name_add_mac_suffix: true
+  platformio_options:
+    build_flags: 
+      -DBOARD_HAS_PSRAM
+      -mfix-esp32-psram-cache-issue
+    board_build.arduino.memory_type: qio_opi
+  project:
+    name: esphome.sendspin-metadata
+    version: dev
+  on_boot:
+    priority: 600
+    then:
+      - lvgl.page.show: idle_page
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: ESP32S3
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+
+psram:
+  mode: quad
+  speed: 80MHz
+
+
+logger:
+  hardware_uart: USB_SERIAL_JTAG
+  level: DEBUG
+  logs:
+    sensor: WARN
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Wt32-Sc01-Plus-Sendspin"
+    password: "FptF2EwqSCE0"
+  on_connect:
+    - delay: 5s
+    - ble.disable:
+  on_disconnect:
+    - ble.enable:
+
+captive_portal:
+
+improv_serial:
+
+esp32_improv:
+  authorizer: none
+
+button:
+  - platform: factory_reset
+    id: factory_reset_btn
+    internal: true
+
+power_supply:
+  - id: backlight_power
+    enable_on_boot: true
+    pin:
+      ignore_strapping_warning: true
+      number: GPIO45
+
+i2c:
+  frequency: 400kHz
+  sda: GPIO6
+  scl: GPIO5
+  scan: true
+
+# FT63X6 Touchscreen configuration for WT32-SC01 Plus
+touchscreen:
+  - platform: ft63x6
+    id: touchscreen_ft63x6
+    interrupt_pin: GPIO7
+    transform:
+      swap_xy: true
+      mirror_y: true
+      mirror_x: false
+    on_touch:
+      - lambda: |-
+          ESP_LOGI("touch", "Touch at (%d, %d)", touch.x, touch.y);
+          // Reset media controls hide timer if overlay is visible
+          if (!lv_obj_has_flag(id(media_controls_overlay), LV_OBJ_FLAG_HIDDEN)) {
+            id(hide_media_controls).stop();
+            id(hide_media_controls).execute();
+          }
+
+external_components:
+  - source: github://pr#10212
+    components: [runtime_image, online_image]
+    refresh: 1h
+  - source: github://pr#12258
+    components: [ media_player ]
+  - source: github://pr#12284
+    components: [generic_image, mdns, sendspin]
+    refresh: 0s
+
+sendspin:
+  id: sendspin_hub
+  task_stack_in_psram: true
+
+generic_image:
+  - platform: sendspin
+    id: sendspin_cover_art
+    format: jpg
+    type: rgb565
+    resize: 300x300  # Larger for higher resolution display
+    image_source: ALBUM
+    on_image_decoded:
+      - if:
+          condition:
+            lvgl.page.is_showing: sendspin_page
+          then:
+            # Built-in lvgl.image.update action doesn't support fading
+            # Update image and fade in after decoding
+            - lambda: |-
+                lv_obj_t* img = id(album_art_widget);
+                // Update image source
+                lv_img_set_src(img, id(sendspin_cover_art));
+                lv_img_set_zoom(img, LV_IMG_ZOOM_NONE);
+
+                // Fade in new image
+                static lv_anim_t fade_in;
+                lv_anim_init(&fade_in);
+                lv_anim_set_var(&fade_in, img);
+                lv_anim_set_values(&fade_in, 0, 255);
+                lv_anim_set_time(&fade_in, 300);  // 300ms fade in
+                lv_anim_set_exec_cb(&fade_in, [](void* obj, int32_t v) {
+                    lv_obj_set_style_img_opa((lv_obj_t*)obj, v, 0);
+                });
+                lv_anim_start(&fade_in);
+          else:
+            # Page isn't currently open, don't bother fading
+            - lvgl.image.update: 
+                id: album_art_widget
+                src: sendspin_cover_art
+    on_image_error:
+      - logger.log: "Failed to decode cover art image"
+  - platform: sendspin
+    id: sendspin_artist_picture
+    format: jpg
+    type: rgb565
+    resize: 300x300  # Larger for higher resolution display
+    image_source: ARTIST
+    on_image_decoded:
+      - lvgl.image.update: 
+          id: artist_picture_widget
+          src: sendspin_artist_picture
+      - logger.log: "Decoded artist picture"
+    on_image_error:
+      - logger.log: "Failed to decode artist picture"
+
+media_player:
+  - platform: sendspin
+    id: sendspin_media_player
+    name: Sendspin Player
+    on_play:
+      # Update play/pause icon
+      - lambda: lv_label_set_text(id(play_pause_icon), "${mdi_pause_glyph}");
+      - if:
+          condition:
+            lvgl.page.is_showing: idle_page
+          then:
+            - lvgl.page.show: 
+                id: sendspin_page
+                animation: FADE_IN
+                time: 300ms
+    on_pause:
+      # Update play/pause icon
+      - lambda: lv_label_set_text(id(play_pause_icon), "${mdi_play_glyph}");
+    on_idle:
+      # Update play/pause icon
+      - lambda: lv_label_set_text(id(play_pause_icon), "${mdi_play_glyph}");
+      - if:
+          condition:
+            not:
+              lvgl.page.is_showing: idle_page
+          then:
+            - lvgl.page.show: 
+                id: idle_page
+                animation: FADE_OUT
+                time: 300ms
+
+script:
+  - id: hide_media_controls
+    mode: restart  # Restart the timer if called again
+    then:
+      - delay: 5s
+      - lvgl.widget.hide: media_controls_overlay
+      - logger.log: "Hiding media controls"
+
+image:
+  - file: https://github.com/esphome/wake-word-voice-assistants/raw/main/error_box_illustrations/error-no-wifi.png
+    id: error_no_wifi
+    resize: 480x320
+    type: RGB
+    transparency: alpha_channel
+  - file: https://github.com/esphome/wake-word-voice-assistants/raw/main/error_box_illustrations/error-no-ha.png
+    id: error_no_ha
+    resize: 480x320
+    type: RGB
+    transparency: alpha_channel
+
+font:
+  - file:
+      type: gfonts
+      family: ${font_family}
+      weight: 300
+    id: font_display
+    size: 24  # Slightly larger for bigger display
+    glyphsets:
+      - ${font_glyphsets}
+
+  # Material Design Icons font for media controls
+  - file: https://github.com/Templarian/MaterialDesign-Webfont/raw/refs/heads/master/fonts/materialdesignicons-webfont.ttf
+    id: font_mdi
+    size: 48  # Larger for bigger display
+    glyphs: [
+      "\U000F03E4",  # mdi:pause
+      "\U000F040A",  # mdi:play
+      "\U000F04AD",  # mdi:skip-next
+      "\U000F04AE",  # mdi:skip-previous
+    ]
+
+text_sensor:
+  - platform: sendspin
+    id: track_title
+    type: title
+    on_value:
+      - component.update: now_playing_text
+  - platform: sendspin
+    id: album_title
+    type: album
+  - platform: sendspin
+    id: track_artist
+    type: artist
+    on_value:
+      - component.update: now_playing_text
+  - platform: sendspin
+    id: album_year
+    type: year
+  - platform: sendspin
+    id: track_number
+    type: track
+  - platform: template
+    id: now_playing_text
+    lambda: |-
+      std::string playing_text = id(track_title).get_state();
+      if (!id(track_artist).get_state().empty()) {
+        if (!playing_text.empty()) {
+          playing_text += " - ";
+        }
+        playing_text += id(track_artist).get_state();
+      }
+      return playing_text;
+    on_value:
+      - lvgl.label.update: 
+          id: now_playing_label
+          text: !lambda return x;
+    update_interval: never
+    
+color:
+  - id: sendspin_bg_color
+    hex: "000000"
+
+spi:
+  - type: octal
+    id: octal_spi
+    clk_pin: 47
+    data_pins:
+      - 9
+      - ignore_strapping_warning: true
+        number: 46
+      - ignore_strapping_warning: true
+        number: 3
+      - 8
+      - 18
+      - 17
+      - 16
+      - 15
+
+display:
+  - platform: mipi_spi
+    id: wt32_display
+    model: wt32-sc01-plus
+    data_rate: 10MHz
+    rotation: 90
+    auto_clear_enabled: false
+    update_interval: never
+
+lvgl:
+  displays:
+    - wt32_display
+  touchscreens:
+    - touchscreen_ft63x6
+  buffer_size: 25%
+  color_depth: 16
+  bg_color: 0x000000
+  default_font: font_display
+  top_layer:
+    widgets:
+      # Media controls overlay (initially hidden) - works on all pages
+      - obj:
+          id: media_controls_overlay
+          align: TOP_MID
+          width: 480
+          height: 100
+          bg_color: 0x000000
+          bg_opa: 60%  # Semi-transparent background
+          border_width: 0
+          radius: 10
+          scrollbar_mode: "OFF"  # Hide scrollbars
+          scrollable: false  # Disable scrolling completely
+          hidden: true  # Initially hidden
+          widgets:
+            # Previous button
+            - button:
+                id: prev_button
+                align: LEFT_MID
+                x: 60
+                width: 80
+                height: 80
+                bg_color: 0x404040
+                bg_opa: 70%
+                radius: 40
+                on_click:
+                  - media_player.previous:
+                  - logger.log: "Previous button pressed"
+                  - script.stop: hide_media_controls
+                  - script.execute: hide_media_controls
+                widgets:
+                  - label:
+                      align: CENTER
+                      text: "\U000F04AE"  # mdi:skip-previous
+                      text_color: 0xFFFFFF
+                      text_font: font_mdi
+
+            # Play/Pause button
+            - button:
+                id: play_pause_button
+                align: CENTER
+                width: 80
+                height: 80
+                bg_color: 0x404040
+                bg_opa: 70%
+                radius: 40
+                on_click:
+                  - media_player.toggle: sendspin_media_player
+                  - logger.log: "Play/Pause button pressed"
+                  - lambda: |-
+                      // Optimistically toggle the icon for immediate feedback
+                      const char* current_text = lv_label_get_text(id(play_pause_icon));
+                      if (strcmp(current_text, "${mdi_pause_glyph}") == 0) {
+                        lv_label_set_text(id(play_pause_icon), "${mdi_play_glyph}");
+                      } else {
+                        lv_label_set_text(id(play_pause_icon), "${mdi_pause_glyph}");
+                      }
+                  - delay: ${optimistic_state_correction_delay}
+                  - lambda: |-
+                      // After delay, ensure icon matches actual state
+                      if (id(sendspin_media_player)->state == media_player::MediaPlayerState::MEDIA_PLAYER_STATE_PLAYING) {
+                        lv_label_set_text(id(play_pause_icon), "${mdi_pause_glyph}");
+                      } else {
+                        lv_label_set_text(id(play_pause_icon), "${mdi_play_glyph}");
+                      }
+                  - script.stop: hide_media_controls
+                  - script.execute: hide_media_controls
+                widgets:
+                  - label:
+                      id: play_pause_icon
+                      align: CENTER
+                      text: "\U000F03E4"  # mdi:pause (default)
+                      text_color: 0xFFFFFF
+                      text_font: font_mdi
+
+            # Next button
+            - button:
+                id: next_button
+                align: RIGHT_MID
+                x: -60
+                width: 80
+                height: 80
+                bg_color: 0x404040
+                bg_opa: 70%
+                radius: 40
+                on_click:
+                  - media_player.next:
+                  - logger.log: "Next button pressed"
+                  - script.stop: hide_media_controls
+                  - script.execute: hide_media_controls
+                widgets:
+                  - label:
+                      align: CENTER
+                      text: "\U000F04AD"  # mdi:skip-next
+                      text_color: 0xFFFFFF
+                      text_font: font_mdi
+  pages:
+    - id: idle_page
+      bg_color: 0x000000
+      skip: true
+      on_swipe_right:
+        - lambda: 'lv_indev_wait_release(lv_indev_get_act());'
+        - lvgl.page.next:
+            animation: OUT_RIGHT
+            time: 300ms
+        - logger.log: "Swiped right"
+      on_swipe_left:
+        - lambda: 'lv_indev_wait_release(lv_indev_get_act());'
+        - lvgl.page.previous:
+            animation: OUT_LEFT
+            time: 300ms
+        - logger.log: "Swiped left"
+      widgets:
+        - label:
+            id: idle_label
+            align: CENTER
+            text: "Sendspin Player"
+            text_color: 0xFFFFFF
+            text_font: font_display
+            clickable: true
+            on_click:
+              - lvgl.page.show: sendspin_page
+        - obj:
+            id: touch_capture_idle
+            x: 0
+            y: 0
+            width: 480
+            height: 320
+            bg_opa: TRANSP
+            border_opa: TRANSP
+            clickable: true
+            on_click:
+              - lambda: |-
+                  if (id(sendspin_media_player)->state == media_player::MediaPlayerState::MEDIA_PLAYER_STATE_PLAYING) {
+                    lv_label_set_text(id(play_pause_icon), "\U000F03E4");
+                  } else {
+                    lv_label_set_text(id(play_pause_icon), "\U000F040A");
+                  }
+              - lvgl.widget.show: media_controls_overlay
+              - logger.log: "Showing media controls"
+              - script.execute: hide_media_controls
+    - id: sendspin_page
+      bg_color: 0x000000
+      scrollbar_mode: "OFF"  # Hide scrollbars on main page
+      on_swipe_right:
+        - lambda: 'lv_indev_wait_release(lv_indev_get_act());'
+        - lvgl.page.next:
+            animation: OUT_RIGHT
+            time: 300ms
+        - logger.log: "Swiped right"
+      on_swipe_left:
+        - lambda: 'lv_indev_wait_release(lv_indev_get_act());'
+        - lvgl.page.previous:
+            animation: OUT_LEFT
+            time: 300ms
+        - logger.log: "Swiped left"
+      widgets:
+        - image:
+            id: album_art_widget
+            align: TOP_MID
+            src: sendspin_cover_art
+            height: 300
+            width: 300
+            antialias: true  # Better quality when scaling
+            clickable: false
+        - obj:
+            id: track_info_container
+            x: 0
+            y: 300
+            width: 480
+            height: 20
+            bg_color: 0x000000
+            border_width: 0
+            pad_all: 0
+            scrollbar_mode: "OFF"  # Hide scrollbars
+            clickable: false
+            widgets:
+              - label:
+                  id: now_playing_label
+                  align: CENTER
+                  text_color: 0xFFFFFF
+                  text_font: font_display
+                  text: ""
+                  width: 460  # Slightly less than container width for padding
+                  long_mode: SCROLL_CIRCULAR  # Continuously scroll text that doesn't fit
+        - obj:
+            id: touch_capture
+            x: 0
+            y: 0
+            width: 480
+            height: 320
+            bg_opa: TRANSP
+            border_opa: TRANSP
+            clickable: true
+            on_click:
+              - lambda: |-
+                  if (id(sendspin_media_player)->state == media_player::MediaPlayerState::MEDIA_PLAYER_STATE_PLAYING) {
+                    lv_label_set_text(id(play_pause_icon), "\U000F03E4");
+                  } else {
+                    lv_label_set_text(id(play_pause_icon), "\U000F040A");
+                  }
+              - lvgl.widget.show: media_controls_overlay
+              - logger.log: "Showing media controls"
+              - script.execute: hide_media_controls
+    - id: sendspin_artist_page
+      bg_color: 0x000000
+      scrollbar_mode: "OFF"  # Hide scrollbars on main page
+      on_swipe_right:
+        - lambda: 'lv_indev_wait_release(lv_indev_get_act());'
+        - lvgl.page.next:
+            animation: OUT_RIGHT
+            time: 300ms
+        - logger.log: "Swiped right"
+      on_swipe_left:
+        - lambda: 'lv_indev_wait_release(lv_indev_get_act());'
+        - lvgl.page.previous:
+            animation: OUT_LEFT
+            time: 300ms
+        - logger.log: "Swiped left"
+      widgets:
+        - image:
+            id: artist_picture_widget
+            align: TOP_MID
+            src: sendspin_artist_picture
+            height: 300
+            width: 300
+            antialias: true  # Better quality when scaling
+            clickable: true
+        - obj:
+            id: touch_capture_artist
+            x: 0
+            y: 0
+            width: 480
+            height: 320
+            bg_opa: TRANSP
+            border_opa: TRANSP
+            clickable: true
+            on_click:
+              - lambda: |-
+                  if (id(sendspin_media_player)->state == media_player::MediaPlayerState::MEDIA_PLAYER_STATE_PLAYING) {
+                    lv_label_set_text(id(play_pause_icon), "\U000F03E4");
+                  } else {
+                    lv_label_set_text(id(play_pause_icon), "\U000F040A");
+                  }
+              - lvgl.widget.show: media_controls_overlay
+              - logger.log: "Showing media controls"
+              - script.execute: hide_media_controls
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "x"
+
+ota:
+  - platform: esphome
+    password: "x"
+
+    
