@@ -1,0 +1,185 @@
+esphome:
+  name: max7219-esp32-reg
+  friendly_name: MAX7219-ESP32-REG
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+web_server:
+  port: 80
+
+# Enable logging
+logger:
+
+datetime:
+  - platform: template
+    name: "Night Mode Start"
+    id: night_mode_start
+    type: time
+    optimistic: true
+    initial_value: "22:00:00"
+    restore_value: true
+
+  - platform: template
+    name: "Night Mode End"
+    id: night_mode_end
+    type: time
+    optimistic: true
+    initial_value: "07:00:00"
+    restore_value: true
+
+globals:
+  id: time_sync_done
+  type: bool
+
+select:
+  - platform: template
+    name: "Display Page"
+    id: display_page
+    options:
+      - "Clock"
+      - "Text"
+    initial_option: "Clock"
+    optimistic: true
+
+time:
+  - platform: sntp
+    id: sntp_time
+    on_time_sync:
+      then:
+        lambda: |-
+          id(time_sync_done) = true;
+
+text:
+  - platform: template
+    name: "Display Text"
+    id: display_text
+    optimistic: true
+    initial_value: "Hello"
+    min_length: 0
+    max_length: 32
+    mode: text
+
+number:
+  - platform: template
+    name: "Display Brightness"
+    id: display_brightness
+    min_value: 0
+    max_value: 15
+    step: 1
+    initial_value: 5
+    optimistic: true
+    restore_value: true
+
+switch:
+  - platform: template
+    name: "Display Power"
+    id: display_power
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+
+# https://www.dafont.com/basis33.font
+font:
+  - file: "fonts/eight-bit-dragon.otf"
+    id: digit_font
+    size: 10
+  - file: "fonts/basis33.ttf"
+    id: digit_font_basis
+    size: 16
+    glyphs: "0123456789 "
+  - file: "fonts/basis33.ttf"
+    id: digit_font_basis15
+    size: 15
+    glyphs: ": ."
+  - file: "fonts/eight-bit-dragon.otf"
+    id: text_font
+    size: 10
+
+spi:
+  clk_pin: GPIO26
+  mosi_pin: GPIO27
+
+display:
+  - platform: max7219digit
+    id: max_display
+    cs_pin: GPIO25
+    num_chips: 4
+    intensity: 15
+    lambda: |-
+      // Display off, blank everything
+      if (!id(display_power).state) {
+        it.intensity(0);
+        return;
+      }
+
+      // Apply brightness from number entity
+      int brightness = (int)id(display_brightness).state;
+      auto now = id(sntp_time).now();
+
+      // Night mode check
+      int current_minutes = now.hour * 60 + now.minute;
+
+      auto start = id(night_mode_start).state_as_esptime();
+      int start_minutes = start.hour * 60 + start.minute;
+
+      auto end = id(night_mode_end).state_as_esptime();
+      int end_minutes = end.hour * 60 + end.minute;
+
+      bool is_night_mode;
+
+      if (start_minutes > end_minutes) {
+        // Crosses midnight (eg 22:00 to 07:00)
+        is_night_mode = (current_minutes >= start_minutes || current_minutes < end_minutes);
+      } else {
+        is_night_mode = (current_minutes >= start_minutes && current_minutes < end_minutes);
+      }
+      it.intensity(is_night_mode ? 0 : brightness);
+
+      // Page: Text
+      if (id(display_page).state == "Text") {
+        it.invert_on_off(false);
+        std::string text = id(display_text).state;
+        it.print(0, 0, id(text_font), text.c_str());
+        return;
+      }
+
+      // Page: Clock (default)
+      if (!id(time_sync_done)) {
+        it.print(0, 5, id(digit_font_basis), ". . . . . . . .");
+        it.invert_on_off(true);
+        return;
+      }
+      it.invert_on_off(false);
+      auto time = id(sntp_time).now();
+      static bool clock_should_blink = true;
+
+      it.strftime(0, 5, id(digit_font_basis), TextAlign::CENTER_LEFT, "%H", time);
+
+      if (is_night_mode || clock_should_blink) {
+        it.strftime(12, 4, id(digit_font_basis15), TextAlign::CENTER_LEFT, ":", time);
+      }
+      it.strftime(17, 5, id(digit_font_basis), TextAlign::CENTER_LEFT, "%M", time);
+      clock_should_blink = !clock_should_blink;
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "x"
+
+ota:
+  - platform: esphome
+    password: "x"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Max7219-Esp32-Reg"
+    password: "x"
+
+captive_portal:
+    
