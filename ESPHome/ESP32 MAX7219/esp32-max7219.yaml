@@ -138,7 +138,7 @@ display:
       it.intensity(is_night_mode ? 0 : brightness);
 
       // Page: Text
-      if (id(display_page).state == "Text") {
+      if (id(display_page).current_option() == "Text") {
         it.invert_on_off(false);
         std::string text = id(display_text).state;
         it.print(0, 0, id(text_font), text.c_str());
