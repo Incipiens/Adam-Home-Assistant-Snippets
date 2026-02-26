@@ -1,0 +1,1159 @@
+# ESPHome Configuration for ESP32-P4 Function EV Board
+# 10-inch Display (1024x600) with WiFi via ESP32-C6
+substitutions:
+  device_name: esp32-p4-display
+  friendly_name: "ESP32-P4 Display Board"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  includes:
+    - <esp_hosted.h>
+  includes_c:
+    - <esp_hosted_ota.h>
+  platformio_options:
+    board_build.flash_mode: qio
+    board_build.psram_type: opi
+    build_flags: 
+      -DBOARD_HAS_PSRAM
+
+esp32:
+  variant: esp32p4
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    components:
+      - name: espressif/esp_hosted
+        ref: 2.7.0
+      - name: espressif/esp_wifi_remote
+        ref: 0.13.*
+    sdkconfig_options:
+      CONFIG_CAMERA_XCLK_USE_ESP_CLOCK_ROUTER: "y"
+      CONFIG_SDMMC_HOST_DEBUG: "y"
+      CONFIG_SDMMC_IO_VOLTAGE_3_3V: "y"
+      CONFIG_ESP_HOSTED_SDIO_RESET_ACTIVE_HIGH: "y"
+      CONFIG_SDMMC_IO_ENABLE_DEBUG_LOGS: "y"
+      CONFIG_ESP_HOSTED_SDIO_CLOCK_FREQ_KHZ: "25000"
+      CONFIG_ESP_SDIO_HIGH_SPEED: "n"
+      CONFIG_ESP_SDIO_4_BIT_BUS: "n"
+      CONFIG_SOC_SDMMC_IO_POWER_EXTERNAL: "y"
+
+esp32_hosted:
+  variant: ESP32C6
+  reset_pin: GPIO32
+  cmd_pin: GPIO19
+  clk_pin: GPIO18
+  d0_pin: GPIO14
+  d1_pin: GPIO15
+  d2_pin: GPIO16
+  d3_pin: GPIO17
+  active_high: true
+
+i2c:
+  - id: bsp_bus
+    sda: GPIO45
+    scl: GPIO46
+    scan: true
+    frequency: 400kHz
+
+touchscreen:
+  - platform: gt911
+    id: touch
+    i2c_id: bsp_bus
+    interrupt_pin: GPIO42
+    reset_pin: GPIO40
+    update_interval: 50ms
+
+output:
+  - platform: ledc
+    id: backlight_pwm
+    pin: GPIO31
+    frequency: 100Hz
+
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    name: "Display Backlight"
+    id: backlight_light
+    restore_mode: RESTORE_DEFAULT_ON
+    default_transition_length: 250ms
+
+esp_ldo:
+  - channel: 3
+    voltage: 2.5V
+
+display:
+  - platform: mipi_dsi
+    id: main_display
+    model: CUSTOM
+    update_interval: never
+    auto_clear_enabled: false
+    color_order: rgb
+    lanes: 2
+    lane_bit_rate: 900Mbps
+    pclk_frequency: 51MHz
+    hsync_back_porch: 160
+    hsync_pulse_width: 70
+    hsync_front_porch: 160
+    vsync_back_porch: 23
+    vsync_pulse_width: 10
+    vsync_front_porch: 12
+    dimensions:
+      width: 1024
+      height: 600
+    init_sequence:
+      - [0xB2, 0x10]
+      - [0x80, 0x8B]
+      - [0x81, 0x78]
+      - [0x82, 0x84]
+      - [0x83, 0x88]
+      - [0x84, 0xA8]
+      - [0x85, 0xE3]
+      - [0x86, 0x88]
+      - [0x11]
+      - delay 120ms
+
+
+font:
+  - file: gfonts://Roboto
+    id: font_title
+    size: 28
+    glyphs: &glyphs "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °●"
+  - file: gfonts://Roboto
+    id: font_body
+    size: 20
+    glyphs: *glyphs
+  - file: gfonts://Roboto
+    id: font_small
+    size: 16
+    glyphs: *glyphs
+
+# Sensors and status
+binary_sensor:
+  - platform: status
+    name: "API Status"
+    id: api_connected
+    on_state:
+      - if:
+          condition:
+            binary_sensor.is_on: api_connected
+          then:
+            - lvgl.label.update:
+                id: lbl_connection_status
+                text: "● Connected"
+                text_color: 0x00E676
+          else:
+            - lvgl.label.update:
+                id: lbl_connection_status
+                text: "● Disconnected"
+                text_color: 0xFF5252
+
+text_sensor:
+  - platform: version
+    name: "ESPHome Version"
+    id: esphome_version
+    on_value:
+      - lvgl.label.update:
+          id: lbl_esphome_version
+          text: !lambda 'return "ESPHome: " + x;'
+
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+      id: wifi_ip
+      on_value:
+        - lvgl.label.update:
+            id: lbl_wifi_ip
+            text: !lambda 'return "IP: " + x;'
+
+  - platform: homeassistant
+    name: "HA Version"
+    id: ha_version
+    entity_id: sensor.current_version
+    on_value:
+      - lvgl.label.update:
+          id: lbl_ha_version
+          text: !lambda 'return "HA: " + x;'
+
+  # NAS status
+  - platform: homeassistant
+    name: "NAS Status"
+    id: nas_status
+    entity_id: sensor.ugreen_nas_device_fan_status
+    on_value:
+      - lvgl.label.update:
+          id: lbl_nas_status
+          text: !lambda 'return "NAS: " + x;'
+      - if:
+          condition:
+            lambda: 'return x == "on" || x == "On";'
+          then:
+            - lvgl.label.update:
+                id: lbl_nas_status
+                text_color: 0x00E676
+          else:
+            - lvgl.label.update:
+                id: lbl_nas_status
+                text_color: 0xFF5252
+
+  # PVE node status
+  - platform: homeassistant
+    name: "Proxmox Node Status"
+    id: pve_node_status
+    entity_id: binary_sensor.node_pve3_status
+    on_value:
+      - lvgl.label.update:
+          id: lbl_pve_status
+          text: !lambda 'return "PVE 3: " + x;'
+      - if:
+          condition:
+            lambda: 'return x == "running" || x == "on";'
+          then:
+            - lvgl.label.update:
+                id: lbl_pve_status
+                text_color: 0x00E676
+          else:
+            - lvgl.label.update:
+                id: lbl_pve_status
+                text_color: 0xFF5252
+
+
+  # TrueNAS VM 106
+  - platform: homeassistant
+    name: "TrueNAS VM Status"
+    id: vm106_status
+    entity_id: sensor.qemu_truenas_106_status
+    on_value:
+      - lvgl.label.update:
+          id: lbl_vm106_status
+          text: !lambda 'return "Status: " + x;'
+      - if:
+          condition:
+            lambda: 'return x == "running";'
+          then:
+            - lvgl.label.update:
+                id: lbl_vm106_status
+                text_color: 0x00E676
+            - lvgl.widget.hide: btn_vm106_start
+            - lvgl.widget.show: btn_vm106_stop
+            # Page 1 duplicates
+            - lvgl.widget.hide: btn_p1_vm106_start
+            - lvgl.widget.show: btn_p1_vm106_stop
+          else:
+            - lvgl.label.update:
+                id: lbl_vm106_status
+                text_color: 0xFFAB40
+            - lvgl.widget.show: btn_vm106_start
+            - lvgl.widget.hide: btn_vm106_stop
+            - lvgl.widget.show: btn_p1_vm106_start
+            - lvgl.widget.hide: btn_p1_vm106_stop
+
+  # Media VM 139
+  - platform: homeassistant
+    name: "Media VM Status"
+    id: vm139_status
+    entity_id: sensor.qemu_ubuntu_139_status
+    on_value:
+      - lvgl.label.update:
+          id: lbl_vm139_status
+          text: !lambda 'return "Status: " + x;'
+      - if:
+          condition:
+            lambda: 'return x == "running";'
+          then:
+            - lvgl.label.update:
+                id: lbl_vm139_status
+                text_color: 0x00E676
+            - lvgl.widget.hide: btn_vm139_start
+            - lvgl.widget.show: btn_vm139_stop
+            - lvgl.widget.hide: btn_p1_vm139_start
+            - lvgl.widget.show: btn_p1_vm139_stop
+          else:
+            - lvgl.label.update:
+                id: lbl_vm139_status
+                text_color: 0xFFAB40
+            - lvgl.widget.show: btn_vm139_start
+            - lvgl.widget.hide: btn_vm139_stop
+            - lvgl.widget.show: btn_p1_vm139_start
+            - lvgl.widget.hide: btn_p1_vm139_stop
+
+sensor:
+  - platform: uptime
+    name: "Uptime"
+    id: display_uptime
+    update_interval: 60s
+    on_value:
+      - lvgl.label.update:
+          id: lbl_uptime
+          text:
+            format: "Uptime: %.0fh"
+            args: ['x / 3600']
+
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    id: wifi_rssi
+    update_interval: 30s
+    on_value:
+      - lvgl.label.update:
+          id: lbl_wifi_signal
+          text:
+            format: "WiFi: %.0f dBm"
+            args: ['x']
+
+  - platform: homeassistant
+    name: "NAS CPU Usage"
+    id: nas_cpu
+    entity_id: sensor.ugreen_nas_cpu_usage
+    on_value:
+      - lvgl.label.update:
+          id: lbl_nas_cpu
+          text:
+            format: "CPU: %.0f%%"
+            args: ['x']
+
+  - platform: homeassistant
+    name: "NAS Memory Usage"
+    id: nas_mem
+    entity_id: sensor.ugreen_nas_ram_usage
+    on_value:
+      - lvgl.label.update:
+          id: lbl_nas_mem
+          text:
+            format: "RAM: %.0f%%"
+            args: ['x']
+
+  - platform: homeassistant
+    name: "PVE CPU Usage"
+    id: pve_cpu
+    entity_id: sensor.node_pve3_cpu_used
+    on_value:
+      - lvgl.label.update:
+          id: lbl_pve_cpu
+          text:
+            format: "CPU: %.0f%%"
+            args: ['x']
+
+  - platform: homeassistant
+    name: "PVE Memory Usage"
+    id: pve_mem
+    entity_id: sensor.node_pve3_memory_used_percentage
+    on_value:
+      - lvgl.label.update:
+          id: lbl_pve_mem
+          text:
+            format: "RAM: %.0f%%"
+            args: ['x']
+
+
+# LVGL
+lvgl:
+  buffer_size: 100%
+  byte_order: little_endian
+  displays:
+    - main_display
+  touchscreens:
+    - touch
+
+  theme:
+    button:
+      radius: 8
+      bg_color: 0x0F3460
+      bg_opa: COVER
+      border_color: 0x533483
+      border_width: 1
+      text_color: 0xE0E0E0
+      text_font: font_body
+      shadow_width: 0
+      pressed:
+        bg_color: 0x533483
+      disabled:
+        bg_color: 0x333333
+        text_color: 0x666666
+    label:
+      text_color: 0xE0E0E0
+      text_font: font_body
+
+  style_definitions:
+    - id: style_card
+      bg_color: 0x16213E
+      bg_opa: COVER
+      radius: 12
+      border_color: 0x0F3460
+      border_width: 1
+      pad_all: 12
+
+    - id: style_section_title
+      text_color: 0x82B1FF
+      text_font: font_body
+
+    - id: style_btn_danger
+      bg_color: 0xB71C1C
+      border_color: 0xFF5252
+
+    - id: style_btn_success
+      bg_color: 0x1B5E20
+      border_color: 0x00E676
+
+    - id: style_top_bar
+      bg_color: 0x0F3460
+      bg_opa: COVER
+      radius: 0
+      pad_all: 0
+
+  pages:
+
+    # Main
+    - id: page_dashboard
+      bg_color: 0x1A1A2E
+      widgets:
+        # Top bar
+        - obj:
+            styles: style_top_bar
+            width: 1024
+            height: 50
+            align: TOP_MID
+            y: 0
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: SPACE_BETWEEN
+              flex_align_cross: CENTER
+              pad_column: 12
+            pad_left: 16
+            pad_right: 16
+            widgets:
+              - label:
+                  text: "Home Lab Manager"
+                  text_font: font_title
+                  text_color: 0xFFFFFF
+              - label:
+                  id: lbl_connection_status
+                  text: "● Connected"
+                  text_font: font_small
+                  text_color: 0x00E676
+
+        # Main content, 3 cards
+        - obj:
+            align: TOP_LEFT
+            x: 0
+            y: 55
+            width: 1024
+            height: 500
+            bg_opa: TRANSP
+            border_opa: TRANSP
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: SPACE_EVENLY
+              flex_align_cross: START
+              pad_row: 8
+              pad_column: 8
+            pad_left: 12
+            pad_right: 12
+            pad_top: 4
+            widgets:
+
+              # Ugren NAS
+              - obj:
+                  styles: style_card
+                  width: 310
+                  height: 480
+                  layout:
+                    type: FLEX
+                    flex_flow: COLUMN
+                    flex_align_cross: CENTER
+                    pad_row: 8
+                  widgets:
+                    - label:
+                        styles: style_section_title
+                        text: "Ugreen NAS"
+                        text_font: font_title
+                    - label:
+                        id: lbl_nas_status
+                        text: "NAS: Waiting..."
+                        text_font: font_body
+                        text_color: 0x888888
+                    - label:
+                        id: lbl_nas_cpu
+                        text: "CPU: --"
+                        text_font: font_small
+                        text_color: 0xB0B0B0
+                    - label:
+                        id: lbl_nas_mem
+                        text: "RAM: --"
+                        text_font: font_small
+                        text_color: 0xB0B0B0
+                    - obj:
+                        width: 1
+                        height: 16
+                        bg_opa: TRANSP
+                        border_opa: TRANSP
+                    - button:
+                        width: 260
+                        height: 55
+                        widgets:
+                          - label:
+                              align: CENTER
+                              text: "Restart NAS"
+                        on_click:
+                          - homeassistant.action:
+                              action: script.restart_ugreen_nas
+                          - lvgl.label.update:
+                              id: lbl_nas_status
+                              text: "NAS: Restarting..."
+                              text_color: 0xFFAB40
+                    - button:
+                        styles: style_btn_danger
+                        width: 260
+                        height: 55
+                        widgets:
+                          - label:
+                              align: CENTER
+                              text: "Shutdown NAS"
+                        on_click:
+                          - homeassistant.action:
+                              action: script.shutdown_ugreen_nas
+                          - lvgl.label.update:
+                              id: lbl_nas_status
+                              text: "NAS: Shutting down..."
+                              text_color: 0xFF5252
+                    - button:
+                        styles: style_btn_success
+                        width: 260
+                        height: 55
+                        widgets:
+                          - label:
+                              align: CENTER
+                              text: "Wake NAS (WoL)"
+                        on_click:
+                          - homeassistant.action:
+                              action: script.wake_ugreen_nas
+
+              # Proxmox
+              - obj:
+                  styles: style_card
+                  width: 310
+                  height: 480
+                  layout:
+                    type: FLEX
+                    flex_flow: COLUMN
+                    flex_align_cross: CENTER
+                    pad_row: 6
+                  widgets:
+                    - label:
+                        styles: style_section_title
+                        text: "Proxmox Node"
+                        text_font: font_title
+                    - label:
+                        id: lbl_pve_status
+                        text: "PVE 3: Waiting..."
+                        text_font: font_body
+                        text_color: 0x888888
+                    - label:
+                        id: lbl_pve_cpu
+                        text: "CPU: --"
+                        text_font: font_small
+                        text_color: 0xB0B0B0
+                    - label:
+                        id: lbl_pve_mem
+                        text: "RAM: --"
+                        text_font: font_small
+                        text_color: 0xB0B0B0
+                    - obj:
+                        width: 1
+                        height: 8
+                        bg_opa: TRANSP
+                        border_opa: TRANSP
+                    # TrueNAS show only relevant button
+                    - button:
+                        id: btn_p1_vm106_start
+                        styles: style_btn_success
+                        width: 260
+                        height: 48
+                        widgets:
+                          - label:
+                              align: CENTER
+                              text: "Start TrueNAS"
+                        on_click:
+                          - homeassistant.action:
+                              action: button.press
+                              data:
+                                entity_id: button.qemu_truenas_106_start
+                    - button:
+                        id: btn_p1_vm106_stop
+                        styles: style_btn_danger
+                        width: 260
+                        height: 48
+                        widgets:
+                          - label:
+                              align: CENTER
+                              text: "Stop TrueNAS"
+                        on_click:
+                          - homeassistant.action:
+                              action: button.press
+                              data:
+                                entity_id: button.qemu_truenas_106_stop
+                    # Media VM show only relevant button 
+                    - button:
+                        id: btn_p1_vm139_start
+                        styles: style_btn_success
+                        width: 260
+                        height: 48
+                        widgets:
+                          - label:
+                              align: CENTER
+                              text: "Start Media"
+                        on_click:
+                          - homeassistant.action:
+                              action: button.press
+                              data:
+                                entity_id: button.qemu_ubuntu_139_start
+                    - button:
+                        id: btn_p1_vm139_stop
+                        styles: style_btn_danger
+                        width: 260
+                        height: 48
+                        widgets:
+                          - label:
+                              align: CENTER
+                              text: "Stop Media"
+                        on_click:
+                          - homeassistant.action:
+                              action: button.press
+                              data:
+                                entity_id: button.qemu_ubuntu_139_stop
+
+              # Quick actions
+              - obj:
+                  styles: style_card
+                  width: 310
+                  height: 480
+                  layout:
+                    type: FLEX
+                    flex_flow: COLUMN
+                    flex_align_cross: CENTER
+                    pad_row: 8
+                  widgets:
+                    - label:
+                        styles: style_section_title
+                        text: "Quick Actions"
+                        text_font: font_title
+                    - button:
+                        width: 260
+                        height: 55
+                        widgets:
+                          - label:
+                              align: CENTER
+                              text: "Restart HA"
+                        on_click:
+                          - homeassistant.action:
+                              action: homeassistant.restart
+                    - button:
+                        width: 260
+                        height: 55
+                        widgets:
+                          - label:
+                              align: CENTER
+                              text: "Create HA Backup"
+                        on_click:
+                          - homeassistant.action:
+                              action: backup.create
+                    - button:
+                        width: 260
+                        height: 55
+                        widgets:
+                          - label:
+                              align: CENTER
+                              text: "Sync Backups to NAS"
+                        on_click:
+                          - homeassistant.action:
+                              action: script.sync_backups_to_nas
+                    - button:
+                        width: 260
+                        height: 55
+                        widgets:
+                          - label:
+                              align: CENTER
+                              text: "Restart Pi-hole"
+                        on_click:
+                          - homeassistant.action:
+                              action: script.restart_pihole
+                    - button:
+                        width: 260
+                        height: 55
+                        widgets:
+                          - label:
+                              align: CENTER
+                              text: "Update Containers"
+                        on_click:
+                          - homeassistant.action:
+                              action: script.update_docker_containers
+
+        # Bottom nav
+        - obj:
+            align: BOTTOM_MID
+            width: 1024
+            height: 40
+            bg_color: 0x0F3460
+            bg_opa: COVER
+            radius: 0
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: CENTER
+              flex_align_cross: CENTER
+              pad_column: 24
+            widgets:
+              - button:
+                  width: 120
+                  height: 32
+                  bg_color: 0x533483
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "Dashboard"
+                        text_font: font_small
+                  on_click:
+                    - lvgl.page.show: page_dashboard
+              - button:
+                  width: 120
+                  height: 32
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "VMs"
+                        text_font: font_small
+                  on_click:
+                    - lvgl.page.show: page_vms
+              - button:
+                  width: 120
+                  height: 32
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "System"
+                        text_font: font_small
+                  on_click:
+                    - lvgl.page.show: page_system
+
+    # VM Manager
+    - id: page_vms
+      bg_color: 0x1A1A2E
+      widgets:
+        - obj:
+            styles: style_top_bar
+            width: 1024
+            height: 50
+            align: TOP_MID
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: SPACE_BETWEEN
+              flex_align_cross: CENTER
+              pad_column: 12
+            pad_left: 16
+            pad_right: 16
+            widgets:
+              - label:
+                  text: "Virtual Machines"
+                  text_font: font_title
+                  text_color: 0xFFFFFF
+
+        # VM grid
+        - obj:
+            align: TOP_LEFT
+            x: 0
+            y: 55
+            width: 1024
+            height: 500
+            bg_opa: TRANSP
+            border_opa: TRANSP
+            layout:
+              type: FLEX
+              flex_flow: ROW_WRAP
+              flex_align_main: SPACE_EVENLY
+              flex_align_cross: START
+              pad_row: 12
+              pad_column: 12
+            pad_left: 12
+            pad_right: 12
+            pad_top: 8
+            widgets:
+
+              # TrueNAS
+              - obj:
+                  styles: style_card
+                  width: 310
+                  height: 220
+                  layout:
+                    type: FLEX
+                    flex_flow: COLUMN
+                    flex_align_cross: CENTER
+                    pad_row: 8
+                  widgets:
+                    - label:
+                        text: "VM 106: TrueNAS"
+                        styles: style_section_title
+                    - label:
+                        id: lbl_vm106_status
+                        text: "Status: --"
+                        text_font: font_small
+                    - obj:
+                        width: 280
+                        height: 65
+                        bg_opa: TRANSP
+                        border_opa: TRANSP
+                        layout:
+                          type: FLEX
+                          flex_flow: ROW
+                          flex_align_main: CENTER
+                          pad_column: 8
+                        widgets:
+                          - button:
+                              id: btn_vm106_start
+                              styles: style_btn_success
+                              width: 130
+                              height: 45
+                              widgets:
+                                - label:
+                                    align: CENTER
+                                    text: "Start"
+                                    text_font: font_small
+                              on_click:
+                                - homeassistant.action:
+                                    action: button.press
+                                    data:
+                                      entity_id: button.qemu_truenas_106_start
+                          - button:
+                              id: btn_vm106_stop
+                              styles: style_btn_danger
+                              width: 130
+                              height: 45
+                              widgets:
+                                - label:
+                                    align: CENTER
+                                    text: "Stop"
+                                    text_font: font_small
+                              on_click:
+                                - homeassistant.action:
+                                    action: button.press
+                                    data:
+                                      entity_id: button.qemu_truenas_106_stop
+
+              # Media
+              - obj:
+                  styles: style_card
+                  width: 310
+                  height: 220
+                  layout:
+                    type: FLEX
+                    flex_flow: COLUMN
+                    flex_align_cross: CENTER
+                    pad_row: 8
+                  widgets:
+                    - label:
+                        text: "VM 139: Media"
+                        styles: style_section_title
+                    - label:
+                        id: lbl_vm139_status
+                        text: "Status: --"
+                        text_font: font_small
+                    - obj:
+                        width: 280
+                        height: 65
+                        bg_opa: TRANSP
+                        border_opa: TRANSP
+                        layout:
+                          type: FLEX
+                          flex_flow: ROW
+                          flex_align_main: CENTER
+                          pad_column: 8
+                        widgets:
+                          - button:
+                              id: btn_vm139_start
+                              styles: style_btn_success
+                              width: 130
+                              height: 45
+                              widgets:
+                                - label:
+                                    align: CENTER
+                                    text: "Start"
+                                    text_font: font_small
+                              on_click:
+                                - homeassistant.action:
+                                    action: button.press
+                                    data:
+                                      entity_id: button.qemu_ubuntu_139_start
+                          - button:
+                              id: btn_vm139_stop
+                              styles: style_btn_danger
+                              width: 130
+                              height: 45
+                              widgets:
+                                - label:
+                                    align: CENTER
+                                    text: "Stop"
+                                    text_font: font_small
+                              on_click:
+                                - homeassistant.action:
+                                    action: button.press
+                                    data:
+                                      entity_id: button.qemu_ubuntu_139_stop
+
+              # ADD MORE VMS HERE
+
+        # Bottom nav
+        - obj:
+            align: BOTTOM_MID
+            width: 1024
+            height: 40
+            bg_color: 0x0F3460
+            bg_opa: COVER
+            radius: 0
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: CENTER
+              flex_align_cross: CENTER
+              pad_column: 24
+            widgets:
+              - button:
+                  width: 120
+                  height: 32
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "Dashboard"
+                        text_font: font_small
+                  on_click:
+                    - lvgl.page.show: page_dashboard
+              - button:
+                  width: 120
+                  height: 32
+                  bg_color: 0x533483
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "VMs"
+                        text_font: font_small
+                  on_click:
+                    - lvgl.page.show: page_vms
+              - button:
+                  width: 120
+                  height: 32
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "System"
+                        text_font: font_small
+                  on_click:
+                    - lvgl.page.show: page_system
+
+    # System info
+    - id: page_system
+      bg_color: 0x1A1A2E
+      widgets:
+        - obj:
+            styles: style_top_bar
+            width: 1024
+            height: 50
+            align: TOP_MID
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: SPACE_BETWEEN
+              flex_align_cross: CENTER
+              pad_column: 12
+            pad_left: 16
+            pad_right: 16
+            widgets:
+              - label:
+                  text: "System Information"
+                  text_font: font_title
+                  text_color: 0xFFFFFF
+
+        - obj:
+            align: TOP_LEFT
+            x: 0
+            y: 55
+            width: 1024
+            height: 500
+            bg_opa: TRANSP
+            border_opa: TRANSP
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: SPACE_EVENLY
+              flex_align_cross: START
+              pad_column: 12
+            pad_left: 12
+            pad_right: 12
+            pad_top: 8
+            widgets:
+              # This Panel Info
+              - obj:
+                  styles: style_card
+                  width: 480
+                  height: 460
+                  layout:
+                    type: FLEX
+                    flex_flow: COLUMN
+                    pad_row: 10
+                  widgets:
+                    - label:
+                        styles: style_section_title
+                        text: "This Display"
+                        text_font: font_title
+                    - label:
+                        id: lbl_esphome_version
+                        text: "ESPHome: --"
+                        text_font: font_small
+                    - label:
+                        id: lbl_uptime
+                        text: "Uptime: --"
+                        text_font: font_small
+                    - label:
+                        id: lbl_wifi_signal
+                        text: "WiFi: --"
+                        text_font: font_small
+                    - label:
+                        id: lbl_wifi_ip
+                        text: "IP: --"
+                        text_font: font_small
+                    - obj:
+                        width: 1
+                        height: 24
+                        bg_opa: TRANSP
+                        border_opa: TRANSP
+                    - button:
+                        width: 260
+                        height: 55
+                        widgets:
+                          - label:
+                              align: CENTER
+                              text: "Restart This Display"
+                        on_click:
+                          - button.press:
+                              id: restart_btn
+
+              # HA System Info
+              - obj:
+                  styles: style_card
+                  width: 480
+                  height: 460
+                  layout:
+                    type: FLEX
+                    flex_flow: COLUMN
+                    pad_row: 10
+                  widgets:
+                    - label:
+                        styles: style_section_title
+                        text: "Home Assistant"
+                        text_font: font_title
+                    - label:
+                        id: lbl_ha_version
+                        text: "HA Version: --"
+                        text_font: font_small
+                    - obj:
+                        width: 1
+                        height: 24
+                        bg_opa: TRANSP
+                        border_opa: TRANSP
+                    - button:
+                        styles: style_btn_danger
+                        width: 260
+                        height: 55
+                        widgets:
+                          - label:
+                              align: CENTER
+                              text: "Restart Home Assistant"
+                        on_click:
+                          - homeassistant.action:
+                              action: homeassistant.restart
+                    - button:
+                        width: 260
+                        height: 55
+                        widgets:
+                          - label:
+                              align: CENTER
+                              text: "Reload All Automations"
+                        on_click:
+                          - homeassistant.action:
+                              action: automation.reload
+
+        # Bottom nav
+        - obj:
+            align: BOTTOM_MID
+            width: 1024
+            height: 40
+            bg_color: 0x0F3460
+            bg_opa: COVER
+            radius: 0
+            layout:
+              type: FLEX
+              flex_flow: ROW
+              flex_align_main: CENTER
+              flex_align_cross: CENTER
+              pad_column: 24
+            widgets:
+              - button:
+                  width: 120
+                  height: 32
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "Dashboard"
+                        text_font: font_small
+                  on_click:
+                    - lvgl.page.show: page_dashboard
+              - button:
+                  width: 120
+                  height: 32
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "VMs"
+                        text_font: font_small
+                  on_click:
+                    - lvgl.page.show: page_vms
+              - button:
+                  width: 120
+                  height: 32
+                  bg_color: 0x533483
+                  widgets:
+                    - label:
+                        align: CENTER
+                        text: "System"
+                        text_font: font_small
+                  on_click:
+                    - lvgl.page.show: page_system
+
+
+psram:
+  mode: hex
+  speed: 200MHz
+
+button:
+  - platform: restart
+    id: restart_btn
+    name: "Restart Display"
+
+logger:
+  hardware_uart: UART0
+
+api:
+  encryption:
+    key: "x"
+
+ota:
+  - platform: esphome
+    password: "x"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Esp32-P4-10-Inch"
+    password: "x"
+
+captive_portal:
