@@ -1,0 +1,1434 @@
+substitutions:
+  device_name: bambu-watch
+  friendly_name: Bambu Watch
+  # Change this to your Bambu Lab printer's entity prefix
+  # Find it in HA settings
+  printer: (printer entity))
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+logger:
+  level: INFO
+
+api:
+  encryption:
+    key: "XX"
+
+ota:
+  - platform: esphome
+    password: "XX"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${friendly_name} Fallback"
+    password: "XX"
+
+captive_portal:
+
+# Display
+
+spi:
+  - id: tft
+    clk_pin: 14
+    mosi_pin: 13
+    miso_pin:
+      number: 12
+      ignore_strapping_warning: true
+  - id: touch
+    clk_pin: 25
+    mosi_pin: 32
+    miso_pin: 39
+
+output:
+  - id: backlight_pwm
+    platform: ledc
+    pin: 21
+
+light:
+  - id: backlight
+    platform: monochromatic
+    output: backlight_pwm
+    name: "Display Backlight"
+    restore_mode: ALWAYS_ON
+
+display:
+  - id: main_display
+    platform: ili9xxx
+    model: ILI9341
+    spi_id: tft
+    cs_pin:
+      number: 15
+      ignore_strapping_warning: true
+    dc_pin:
+      number: 2
+      ignore_strapping_warning: true
+    invert_colors: false
+    update_interval: never
+    auto_clear_enabled: false
+    dimensions:
+      height: 240
+      width: 320
+    transform:
+      swap_xy: true
+      mirror_x: false
+      mirror_y: false
+
+touchscreen:
+  - id: main_touchscreen
+    platform: xpt2046
+    spi_id: touch
+    cs_pin: 33
+    interrupt_pin: 36
+    threshold: 400
+    calibration:
+      x_min: 360
+      x_max: 3860
+      y_min: 280
+      y_max: 3860
+    transform:
+      swap_xy: true
+      mirror_x: false
+    on_touch:
+      - light.turn_on:
+          id: backlight
+          brightness: 100%
+          transition_length: 0.5s
+
+# Fonts
+
+font:
+  - file: "gfonts://Roboto"
+    id: roboto_14
+    size: 14
+    bpp: 4
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °±²³µ·¹º¼½¾×÷"
+  - file: "gfonts://Roboto"
+    id: roboto_16
+    size: 16
+    bpp: 4
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °±²³µ·¹º¼½¾×÷"
+  - file: "gfonts://Roboto@700"
+    id: roboto_bold_20
+    size: 20
+    bpp: 4
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °±²³µ·¹º¼½¾×÷"
+  - file: "gfonts://Roboto@700"
+    id: roboto_bold_28
+    size: 28
+    bpp: 4
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °"
+  - file: "https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/fonts/materialdesignicons-webfont.ttf"
+    id: mdi_22
+    size: 22
+    bpp: 4
+    glyphs: [
+      "\U000F0A7A", "\U000F050F", "\U000F0238", "\U000F0156",
+      "\U000F04B8", "\U000F058E", "\U000F0769", "\U000F0493",
+      "\U000F02DC", "\U000F004B", "\U000F01E2", "\U000F0535",
+      "\U000F0210", "\U000F06B5", "\U000F0F96",
+    ]
+  - file: "https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/fonts/materialdesignicons-webfont.ttf"
+    id: mdi_18
+    size: 18
+    bpp: 4
+    glyphs: [
+      "\U000F0A7A", "\U000F050F", "\U000F0238", "\U000F0493", "\U000F02DC",
+    ]
+
+# HA sensors
+
+text_sensor:
+  - platform: homeassistant
+    id: ha_print_status
+    entity_id: sensor.${printer}_print_status
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_print_status
+            text: !lambda |-
+              std::string s = x;
+              if (s == "finish") return std::string("Finished");
+              if (s == "running") return std::string("Printing");
+              if (s == "pause") return std::string("Paused");
+              if (s == "idle") return std::string("Idle");
+              if (s == "prepare") return std::string("Preparing");
+              if (s == "failed") return std::string("Failed");
+              return std::string(x);
+        - lvgl.label.update:
+            id: lbl_status_detail
+            text: !lambda |-
+              std::string s = x;
+              if (s == "finish") return std::string("Finished");
+              if (s == "running") return std::string("Printing");
+              if (s == "pause") return std::string("Paused");
+              if (s == "idle") return std::string("Idle");
+              if (s == "prepare") return std::string("Preparing");
+              if (s == "failed") return std::string("Failed");
+              return std::string(x);
+
+  - platform: homeassistant
+    id: ha_current_stage
+    entity_id: sensor.${printer}_current_stage
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_current_stage
+            text: !lambda |-
+              std::string s = x;
+              if (s == "idle") return std::string("Idle");
+              if (s == "printing") return std::string("Printing");
+              if (s == "auto_bed_leveling") return std::string("Bed Leveling");
+              if (s == "heatbed_preheating") return std::string("Heating Bed");
+              if (s == "sweeping_xp_area") return std::string("Sweeping");
+              if (s == "changing_filament") return std::string("Filament Change");
+              if (s == "heating_hotend") return std::string("Heating Nozzle");
+              if (s == "calibrating_extrusion") return std::string("Calibrating");
+              if (s == "scanning_bed_surface") return std::string("Scanning Bed");
+              if (s == "inspecting_first_layer") return std::string("1st Layer Check");
+              if (s == "cleaning_nozzle_tip") return std::string("Cleaning Nozzle");
+              return std::string(x);
+
+  - platform: homeassistant
+    id: ha_task_name
+    entity_id: sensor.${printer}_task_name
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_task_name
+            text: !lambda 'return std::string(x);'
+
+  - platform: homeassistant
+    id: ha_speed_profile
+    entity_id: sensor.${printer}_speed_profile
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_speed_profile
+            text: !lambda |-
+              std::string s = x;
+              if (s == "silent") return std::string("Silent");
+              if (s == "standard") return std::string("Standard");
+              if (s == "sport") return std::string("Sport");
+              if (s == "ludicrous") return std::string("Ludicrous");
+              return std::string(x);
+        - lvgl.label.update:
+            id: lbl_speed_profile2
+            text: !lambda |-
+              std::string s = x;
+              if (s == "silent") return std::string("Silent");
+              if (s == "standard") return std::string("Standard");
+              if (s == "sport") return std::string("Sport");
+              if (s == "ludicrous") return std::string("Ludicrous");
+              return std::string(x);
+
+  - platform: homeassistant
+    id: ha_active_tray
+    entity_id: sensor.${printer}_active_tray
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_active_tray
+            text: !lambda 'return std::string(x);'
+        - lvgl.label.update:
+            id: lbl_info_active_tray
+            text: !lambda 'return std::string(x);'
+
+  - platform: homeassistant
+    id: ha_nozzle_type
+    entity_id: sensor.${printer}_nozzle_type
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_nozzle_type
+            text: !lambda |-
+              std::string s = x;
+              if (s == "hardened_steel") return std::string("Hardened Steel");
+              if (s == "stainless_steel") return std::string("Stainless Steel");
+              return std::string(x);
+        - lvgl.label.update:
+            id: lbl_info_nozzle_type
+            text: !lambda |-
+              std::string s = x;
+              if (s == "hardened_steel") return std::string("Hardened Steel");
+              if (s == "stainless_steel") return std::string("Stainless Steel");
+              return std::string(x);
+
+  - platform: homeassistant
+    id: ha_ams1_tray1
+    entity_id: sensor.${printer}_ams_1_tray_1
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_ams_tray1
+            text: !lambda 'return std::string(x);'
+  - platform: homeassistant
+    id: ha_ams1_tray2
+    entity_id: sensor.${printer}_ams_1_tray_2
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_ams_tray2
+            text: !lambda 'return std::string(x);'
+  - platform: homeassistant
+    id: ha_ams1_tray3
+    entity_id: sensor.${printer}_ams_1_tray_3
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_ams_tray3
+            text: !lambda 'return std::string(x);'
+  - platform: homeassistant
+    id: ha_ams1_tray4
+    entity_id: sensor.${printer}_ams_1_tray_4
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_ams_tray4
+            text: !lambda 'return std::string(x);'
+
+sensor:
+  - platform: homeassistant
+    id: ha_print_progress
+    entity_id: sensor.${printer}_print_progress
+    on_value:
+      then:
+        - lvgl.arc.update:
+            id: arc_progress
+            value: !lambda 'return (int)x;'
+        - lvgl.label.update:
+            id: lbl_progress_pct
+            text: !lambda |-
+              char buf[8]; snprintf(buf, sizeof(buf), "%d%%", (int)x);
+              return std::string(buf);
+        - lvgl.bar.update:
+            id: bar_progress
+            value: !lambda 'return (int)x;'
+
+  - platform: homeassistant
+    id: ha_nozzle_temp
+    entity_id: sensor.${printer}_nozzle_temperature
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_nozzle_temp
+            text: !lambda |-
+              char buf[16]; snprintf(buf, sizeof(buf), "%.0f°C", x);
+              return std::string(buf);
+
+  - platform: homeassistant
+    id: ha_nozzle_target
+    entity_id: sensor.${printer}_nozzle_target_temperature
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_nozzle_target
+            text: !lambda |-
+              if ((int)x == 0) return std::string("Off");
+              char buf[16]; snprintf(buf, sizeof(buf), "/ %.0f°C", x);
+              return std::string(buf);
+
+  - platform: homeassistant
+    id: ha_bed_temp
+    entity_id: sensor.${printer}_bed_temperature
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_bed_temp
+            text: !lambda |-
+              char buf[16]; snprintf(buf, sizeof(buf), "%.0f°C", x);
+              return std::string(buf);
+
+  - platform: homeassistant
+    id: ha_bed_target
+    entity_id: sensor.${printer}_bed_target_temperature
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_bed_target
+            text: !lambda |-
+              if ((int)x == 0) return std::string("Off");
+              char buf[16]; snprintf(buf, sizeof(buf), "/ %.0f°C", x);
+              return std::string(buf);
+
+  - platform: homeassistant
+    id: ha_chamber_temp
+    entity_id: sensor.${printer}_chamber_temperature
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_chamber_temp
+            text: !lambda |-
+              char buf[16]; snprintf(buf, sizeof(buf), "%.0f°C", x);
+              return std::string(buf);
+
+  - platform: homeassistant
+    id: ha_remaining_time
+    entity_id: sensor.${printer}_remaining_time
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_remaining_time
+            text: !lambda |-
+              int mins = (int)x;
+              if (mins <= 0) return std::string("Done");
+              int h = mins / 60; int m = mins % 60;
+              char buf[16];
+              if (h > 0) snprintf(buf, sizeof(buf), "%dh %dm", h, m);
+              else snprintf(buf, sizeof(buf), "%dm", m);
+              return std::string(buf);
+
+  - platform: homeassistant
+    id: ha_current_layer
+    entity_id: sensor.${printer}_current_layer
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_layers
+            text: !lambda |-
+              char buf[24];
+              snprintf(buf, sizeof(buf), "%d/%d", (int)id(ha_current_layer).state, (int)id(ha_total_layers).state);
+              return std::string(buf);
+  - platform: homeassistant
+    id: ha_total_layers
+    entity_id: sensor.${printer}_total_layer_count
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_layers
+            text: !lambda |-
+              char buf[24];
+              snprintf(buf, sizeof(buf), "%d/%d", (int)id(ha_current_layer).state, (int)id(ha_total_layers).state);
+              return std::string(buf);
+
+  - platform: homeassistant
+    id: ha_aux_fan
+    entity_id: sensor.${printer}_aux_fan_speed
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_aux_fan
+            text: !lambda |-
+              char buf[8]; snprintf(buf, sizeof(buf), "%d%%", (int)x);
+              return std::string(buf);
+  - platform: homeassistant
+    id: ha_chamber_fan
+    entity_id: sensor.${printer}_chamber_fan_speed
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_chamber_fan
+            text: !lambda |-
+              char buf[8]; snprintf(buf, sizeof(buf), "%d%%", (int)x);
+              return std::string(buf);
+  - platform: homeassistant
+    id: ha_cooling_fan
+    entity_id: sensor.${printer}_cooling_fan_speed
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_cooling_fan
+            text: !lambda |-
+              char buf[8]; snprintf(buf, sizeof(buf), "%d%%", (int)x);
+              return std::string(buf);
+  - platform: homeassistant
+    id: ha_heatbreak_fan
+    entity_id: sensor.${printer}_heatbreak_fan_speed
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_heatbreak_fan
+            text: !lambda |-
+              char buf[8]; snprintf(buf, sizeof(buf), "%d%%", (int)x);
+              return std::string(buf);
+
+  - platform: homeassistant
+    id: ha_nozzle_size
+    entity_id: sensor.${printer}_nozzle_size
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_nozzle_size
+            text: !lambda |-
+              char buf[8]; snprintf(buf, sizeof(buf), "%.1fmm", x);
+              return std::string(buf);
+        - lvgl.label.update:
+            id: lbl_info_nozzle_size
+            text: !lambda |-
+              char buf[8]; snprintf(buf, sizeof(buf), "%.1fmm", x);
+              return std::string(buf);
+
+  - platform: homeassistant
+    id: ha_ams1_humidity
+    entity_id: sensor.${printer}_ams_1_humidity
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_ams_humidity
+            text: !lambda |-
+              char buf[8]; snprintf(buf, sizeof(buf), "%.0f%%", x);
+              return std::string(buf);
+  - platform: homeassistant
+    id: ha_ams1_temp
+    entity_id: sensor.${printer}_ams_1_temperature
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_ams_temp
+            text: !lambda |-
+              char buf[12]; snprintf(buf, sizeof(buf), "%.1f°C", x);
+              return std::string(buf);
+
+  - platform: homeassistant
+    id: ha_wifi_signal
+    entity_id: sensor.${printer}_wi_fi_signal
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_wifi_signal
+            text: !lambda |-
+              char buf[16]; snprintf(buf, sizeof(buf), "%.0f dBm", x);
+              return std::string(buf);
+  - platform: homeassistant
+    id: ha_total_usage
+    entity_id: sensor.${printer}_total_usage
+    on_value:
+      then:
+        - lvgl.label.update:
+            id: lbl_total_usage
+            text: !lambda |-
+              char buf[16]; snprintf(buf, sizeof(buf), "%.1f hrs", x);
+              return std::string(buf);
+
+binary_sensor:
+  - platform: homeassistant
+    id: ha_online
+    entity_id: binary_sensor.${printer}_online
+    on_state:
+      then:
+        - if:
+            condition:
+              lambda: 'return x;'
+            then:
+              - lvgl.label.update:
+                  id: lbl_online_status
+                  text: "Online"
+              - lvgl.widget.update:
+                  id: lbl_online_status
+                  text_color: 0x00E676
+            else:
+              - lvgl.label.update:
+                  id: lbl_online_status
+                  text: "Offline"
+              - lvgl.widget.update:
+                  id: lbl_online_status
+                  text_color: 0xFF5252
+  - platform: homeassistant
+    id: ha_door
+    entity_id: binary_sensor.${printer}_enclosure_door
+    on_state:
+      then:
+        - if:
+            condition:
+              lambda: 'return x;'
+            then:
+              - lvgl.label.update:
+                  id: lbl_door
+                  text: "Open"
+            else:
+              - lvgl.label.update:
+                  id: lbl_door
+                  text: "Closed"
+  - platform: homeassistant
+    id: ha_hms_errors
+    entity_id: binary_sensor.${printer}_hms_errors
+    on_state:
+      then:
+        - if:
+            condition:
+              lambda: 'return x;'
+            then:
+              - lvgl.label.update:
+                  id: lbl_hms
+                  text: "ERRORS"
+              - lvgl.widget.update:
+                  id: lbl_hms
+                  text_color: 0xFF5252
+            else:
+              - lvgl.label.update:
+                  id: lbl_hms
+                  text: "Clear"
+              - lvgl.widget.update:
+                  id: lbl_hms
+                  text_color: 0x00E676
+  - platform: homeassistant
+    id: ha_filament
+    entity_id: binary_sensor.${printer}_extruder_filament_state
+
+# LVGL
+
+lvgl:
+  buffer_size: 25%
+  log_level: WARN
+  color_depth: 16
+  touchscreens:
+    - main_touchscreen
+  displays:
+    - main_display
+
+  theme:
+    label:
+      text_font: roboto_14
+      text_color: 0xE0E0E0
+    obj:
+      bg_color: 0x1A1A2E
+      border_width: 0
+      radius: 4
+    arc:
+      arc_color: 0x333355
+      arc_width: 7
+      indicator:
+        arc_color: 0x00E676
+        arc_width: 7
+      knob:
+        bg_opa: TRANSP
+    bar:
+      bg_color: 0x333355
+      bg_opa: COVER
+      radius: 3
+      indicator:
+        bg_color: 0x00E676
+        radius: 3
+    buttonmatrix:
+      bg_opa: TRANSP
+      border_width: 0
+      pad_all: 0
+      items:
+        bg_color: 0x16213E
+        bg_opa: COVER
+        border_color: 0x0F3460
+        border_width: 1
+        text_color: 0x7878A0
+        text_font: mdi_18
+        pressed:
+          bg_color: 0x0F3460
+          text_color: 0x00E676
+
+  style_definitions:
+    - id: style_card
+      bg_color: 0x16213E
+      bg_opa: COVER
+      radius: 6
+      border_width: 1
+      border_color: 0x0F3460
+      pad_all: 4
+      scrollbar_mode: "OFF"
+    - id: style_nav
+      bg_color: 0x0A0A1A
+      bg_opa: COVER
+      border_width: 0
+
+  pages:
+
+    # Status
+    - id: page_status
+      scrollbar_mode: "OFF"
+      bg_color: 0x0A0A1A
+      widgets:
+        - obj:
+            scrollbar_mode: "OFF"
+            width: 320
+            height: 22
+            x: 0
+            y: 0
+            bg_color: 0x16213E
+            bg_opa: COVER
+            radius: 0
+            pad_left: 6
+            pad_right: 6
+            pad_top: 3
+            widgets:
+              - label:
+                  text: "\U000F0A7A Bambu P2S"
+                  text_font: roboto_14
+                  text_color: 0x00E676
+                  align: LEFT_MID
+              - label:
+                  id: lbl_online_status
+                  text: "..."
+                  text_font: roboto_14
+                  text_color: 0x7878A0
+                  align: RIGHT_MID
+        - arc:
+            id: arc_progress
+            x: 8
+            y: 28
+            width: 88
+            height: 88
+            min_value: 0
+            max_value: 100
+            value: 0
+            adjustable: false
+            start_angle: 135
+            end_angle: 45
+            indicator:
+              arc_color: 0x00E676
+              arc_width: 7
+              arc_rounded: true
+            arc_color: 0x333355
+            arc_width: 7
+            widgets:
+              - label:
+                  id: lbl_progress_pct
+                  text: "--%"
+                  text_font: roboto_bold_20
+                  text_color: 0xFFFFFF
+                  align: CENTER
+        - label:
+            id: lbl_print_status
+            text: "..."
+            text_font: roboto_bold_20
+            text_color: 0xB0B0CC
+            x: 106
+            y: 28
+        - label:
+            id: lbl_current_stage
+            text: "..."
+            text_font: roboto_14
+            text_color: 0x7878A0
+            x: 106
+            y: 50
+            width: 206
+            long_mode: DOT
+        - label:
+            id: lbl_task_name
+            text: "Waiting..."
+            text_font: roboto_14
+            text_color: 0x7878A0
+            x: 106
+            y: 68
+            width: 206
+            long_mode: DOT
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 106
+            y: 88
+            width: 100
+            height: 26
+            styles: style_card
+            pad_left: 3
+            widgets:
+              - label:
+                  text: "\U000F0156"
+                  text_font: mdi_22
+                  text_color: 0x00E676
+                  align: LEFT_MID
+              - label:
+                  id: lbl_remaining_time
+                  text: "--"
+                  text_font: roboto_14
+                  text_color: 0xFFFFFF
+                  x: 24
+                  align: LEFT_MID
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 212
+            y: 88
+            width: 102
+            height: 26
+            styles: style_card
+            pad_left: 3
+            widgets:
+              - label:
+                  text: "\U000F058E"
+                  text_font: mdi_22
+                  text_color: 0x00E676
+                  align: LEFT_MID
+              - label:
+                  id: lbl_layers
+                  text: "--/--"
+                  text_font: roboto_14
+                  text_color: 0xFFFFFF
+                  x: 24
+                  align: LEFT_MID
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 4
+            y: 122
+            width: 102
+            height: 40
+            styles: style_card
+            widgets:
+              - label:
+                  text: "\U000F0F96 Nozzle"
+                  text_font: roboto_14
+                  text_color: 0xFF6E40
+                  x: 0
+                  y: 0
+              - label:
+                  id: lbl_nozzle_temp
+                  text: "--°C"
+                  text_font: roboto_bold_20
+                  text_color: 0xFFFFFF
+                  x: 0
+                  y: 16
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 112
+            y: 122
+            width: 98
+            height: 40
+            styles: style_card
+            widgets:
+              - label:
+                  text: "\U000F01E2 Bed"
+                  text_font: roboto_14
+                  text_color: 0xFF5252
+                  x: 0
+                  y: 0
+              - label:
+                  id: lbl_bed_temp
+                  text: "--°C"
+                  text_font: roboto_bold_20
+                  text_color: 0xFFFFFF
+                  x: 0
+                  y: 16
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 216
+            y: 122
+            width: 98
+            height: 40
+            styles: style_card
+            widgets:
+              - label:
+                  text: "\U000F050F Chamber"
+                  text_font: roboto_14
+                  text_color: 0x448AFF
+                  x: 0
+                  y: 0
+              - label:
+                  id: lbl_chamber_temp
+                  text: "--°C"
+                  text_font: roboto_bold_20
+                  text_color: 0xFFFFFF
+                  x: 0
+                  y: 16
+        - label:
+            text: "\U000F04B8"
+            text_font: mdi_22
+            text_color: 0x00E676
+            x: 6
+            y: 170
+        - label:
+            id: lbl_speed_profile
+            text: "--"
+            text_font: roboto_14
+            text_color: 0xFFFFFF
+            x: 30
+            y: 173
+        - bar:
+            id: bar_progress
+            x: 100
+            y: 176
+            width: 214
+            height: 5
+            min_value: 0
+            max_value: 100
+            value: 0
+
+    # Temps + Fans
+    - id: page_temps
+      scrollbar_mode: "OFF"
+      bg_color: 0x0A0A1A
+      widgets:
+        - obj:
+            scrollbar_mode: "OFF"
+            width: 320
+            height: 22
+            x: 0
+            y: 0
+            bg_color: 0x16213E
+            bg_opa: COVER
+            radius: 0
+            pad_left: 6
+            pad_top: 3
+            widgets:
+              - label:
+                  text: "\U000F050F Temps & Fans"
+                  text_font: roboto_16
+                  text_color: 0x00E676
+                  align: LEFT_MID
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 4
+            y: 28
+            width: 152
+            height: 42
+            styles: style_card
+            widgets:
+              - label:
+                  text: "\U000F0F96 Nozzle"
+                  text_font: roboto_14
+                  text_color: 0xFF6E40
+                  x: 0
+                  y: 0
+              - label:
+                  id: lbl_nozzle_target
+                  text: "Off"
+                  text_font: roboto_14
+                  text_color: 0x7878A0
+                  x: 82
+                  y: 0
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 164
+            y: 28
+            width: 152
+            height: 42
+            styles: style_card
+            widgets:
+              - label:
+                  text: "\U000F01E2 Bed"
+                  text_font: roboto_14
+                  text_color: 0xFF5252
+                  x: 0
+                  y: 0
+              - label:
+                  id: lbl_bed_target
+                  text: "Off"
+                  text_font: roboto_14
+                  text_color: 0x7878A0
+                  x: 60
+                  y: 0
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 4
+            y: 76
+            width: 152
+            height: 40
+            styles: style_card
+            widgets:
+              - label:
+                  text: "Part Cool"
+                  text_font: roboto_14
+                  text_color: 0x7878A0
+                  x: 0
+                  y: 0
+              - label:
+                  id: lbl_cooling_fan
+                  text: "--%"
+                  text_font: roboto_bold_20
+                  text_color: 0xFFFFFF
+                  x: 0
+                  y: 16
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 164
+            y: 76
+            width: 152
+            height: 40
+            styles: style_card
+            widgets:
+              - label:
+                  text: "Aux Fan"
+                  text_font: roboto_14
+                  text_color: 0x7878A0
+                  x: 0
+                  y: 0
+              - label:
+                  id: lbl_aux_fan
+                  text: "--%"
+                  text_font: roboto_bold_20
+                  text_color: 0xFFFFFF
+                  x: 0
+                  y: 16
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 4
+            y: 122
+            width: 152
+            height: 40
+            styles: style_card
+            widgets:
+              - label:
+                  text: "Chamber Fan"
+                  text_font: roboto_14
+                  text_color: 0x7878A0
+                  x: 0
+                  y: 0
+              - label:
+                  id: lbl_chamber_fan
+                  text: "--%"
+                  text_font: roboto_bold_20
+                  text_color: 0xFFFFFF
+                  x: 0
+                  y: 16
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 164
+            y: 122
+            width: 152
+            height: 40
+            styles: style_card
+            widgets:
+              - label:
+                  text: "Heatbreak"
+                  text_font: roboto_14
+                  text_color: 0x7878A0
+                  x: 0
+                  y: 0
+              - label:
+                  id: lbl_heatbreak_fan
+                  text: "--%"
+                  text_font: roboto_bold_20
+                  text_color: 0xFFFFFF
+                  x: 0
+                  y: 16
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 4
+            y: 168
+            width: 312
+            height: 34
+            styles: style_card
+            widgets:
+              - label:
+                  text: "\U000F04B8 Speed:"
+                  text_font: roboto_14
+                  text_color: 0x7878A0
+                  x: 0
+                  y: 4
+              - label:
+                  id: lbl_speed_profile2
+                  text: "--"
+                  text_font: roboto_bold_20
+                  text_color: 0xFFFFFF
+                  x: 80
+                  y: 2
+
+    # AMS + Filament
+    - id: page_ams
+      scrollbar_mode: "OFF"
+      bg_color: 0x0A0A1A
+      widgets:
+        - obj:
+            scrollbar_mode: "OFF"
+            width: 320
+            height: 22
+            x: 0
+            y: 0
+            bg_color: 0x16213E
+            bg_opa: COVER
+            radius: 0
+            pad_left: 6
+            pad_top: 3
+            widgets:
+              - label:
+                  text: "\U000F0493 AMS & Filament"
+                  text_font: roboto_16
+                  text_color: 0x00E676
+                  align: LEFT_MID
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 4
+            y: 28
+            width: 152
+            height: 40
+            styles: style_card
+            widgets:
+              - label:
+                  text: "\U000F0535 Humidity"
+                  text_font: roboto_14
+                  text_color: 0x7878A0
+                  x: 0
+                  y: 0
+              - label:
+                  id: lbl_ams_humidity
+                  text: "--%"
+                  text_font: roboto_bold_20
+                  text_color: 0xFFFFFF
+                  x: 0
+                  y: 16
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 164
+            y: 28
+            width: 152
+            height: 40
+            styles: style_card
+            widgets:
+              - label:
+                  text: "\U000F050F AMS Temp"
+                  text_font: roboto_14
+                  text_color: 0x7878A0
+                  x: 0
+                  y: 0
+              - label:
+                  id: lbl_ams_temp
+                  text: "--°C"
+                  text_font: roboto_bold_20
+                  text_color: 0xFFFFFF
+                  x: 0
+                  y: 16
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 4
+            y: 74
+            width: 152
+            height: 30
+            styles: style_card
+            widgets:
+              - label:
+                  text: "T1:"
+                  text_font: roboto_14
+                  text_color: 0x7878A0
+                  x: 0
+                  y: 2
+              - label:
+                  id: lbl_ams_tray1
+                  text: "--"
+                  text_font: roboto_14
+                  text_color: 0xFFFFFF
+                  x: 26
+                  y: 2
+                  width: 116
+                  long_mode: DOT
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 164
+            y: 74
+            width: 152
+            height: 30
+            styles: style_card
+            widgets:
+              - label:
+                  text: "T2:"
+                  text_font: roboto_14
+                  text_color: 0x7878A0
+                  x: 0
+                  y: 2
+              - label:
+                  id: lbl_ams_tray2
+                  text: "--"
+                  text_font: roboto_14
+                  text_color: 0xFFFFFF
+                  x: 26
+                  y: 2
+                  width: 116
+                  long_mode: DOT
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 4
+            y: 110
+            width: 152
+            height: 30
+            styles: style_card
+            widgets:
+              - label:
+                  text: "T3:"
+                  text_font: roboto_14
+                  text_color: 0x7878A0
+                  x: 0
+                  y: 2
+              - label:
+                  id: lbl_ams_tray3
+                  text: "--"
+                  text_font: roboto_14
+                  text_color: 0xFFFFFF
+                  x: 26
+                  y: 2
+                  width: 116
+                  long_mode: DOT
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 164
+            y: 110
+            width: 152
+            height: 30
+            styles: style_card
+            widgets:
+              - label:
+                  text: "T4:"
+                  text_font: roboto_14
+                  text_color: 0x7878A0
+                  x: 0
+                  y: 2
+              - label:
+                  id: lbl_ams_tray4
+                  text: "--"
+                  text_font: roboto_14
+                  text_color: 0xFFFFFF
+                  x: 26
+                  y: 2
+                  width: 116
+                  long_mode: DOT
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 4
+            y: 146
+            width: 312
+            height: 54
+            styles: style_card
+            widgets:
+              - label:
+                  text: "Active:"
+                  text_font: roboto_14
+                  text_color: 0x7878A0
+                  x: 0
+                  y: 2
+              - label:
+                  id: lbl_active_tray
+                  text: "--"
+                  text_font: roboto_14
+                  text_color: 0xFFFFFF
+                  x: 54
+                  y: 2
+              - label:
+                  text: "Nozzle:"
+                  text_font: roboto_14
+                  text_color: 0x7878A0
+                  x: 0
+                  y: 22
+              - label:
+                  id: lbl_nozzle_size
+                  text: "--"
+                  text_font: roboto_14
+                  text_color: 0xFFFFFF
+                  x: 54
+                  y: 22
+              - label:
+                  id: lbl_nozzle_type
+                  text: ""
+                  text_font: roboto_14
+                  text_color: 0x7878A0
+                  x: 108
+                  y: 22
+
+    # Printer info
+    - id: page_info
+      scrollbar_mode: "OFF"
+      bg_color: 0x0A0A1A
+      widgets:
+        - obj:
+            scrollbar_mode: "OFF"
+            width: 320
+            height: 22
+            x: 0
+            y: 0
+            bg_color: 0x16213E
+            bg_opa: COVER
+            radius: 0
+            pad_left: 6
+            pad_top: 3
+            widgets:
+              - label:
+                  text: "\U000F02DC Printer Info"
+                  text_font: roboto_16
+                  text_color: 0x00E676
+                  align: LEFT_MID
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 4
+            y: 28
+            width: 312
+            height: 60
+            styles: style_card
+            widgets:
+              - label:
+                  text: "Status:"
+                  text_font: roboto_14
+                  text_color: 0x7878A0
+                  x: 0
+                  y: 0
+              - label:
+                  id: lbl_status_detail
+                  text: "--"
+                  text_font: roboto_bold_20
+                  text_color: 0xFFFFFF
+                  x: 54
+                  y: -2
+              - label:
+                  text: "Door:"
+                  text_font: roboto_14
+                  text_color: 0x7878A0
+                  x: 0
+                  y: 22
+              - label:
+                  id: lbl_door
+                  text: "--"
+                  text_font: roboto_14
+                  text_color: 0xFFFFFF
+                  x: 42
+                  y: 22
+              - label:
+                  text: "HMS:"
+                  text_font: roboto_14
+                  text_color: 0x7878A0
+                  x: 120
+                  y: 22
+              - label:
+                  id: lbl_hms
+                  text: "--"
+                  text_font: roboto_14
+                  text_color: 0x00E676
+                  x: 160
+                  y: 22
+              - label:
+                  text: "Active:"
+                  text_font: roboto_14
+                  text_color: 0x7878A0
+                  x: 0
+                  y: 40
+              - label:
+                  id: lbl_info_active_tray
+                  text: "--"
+                  text_font: roboto_14
+                  text_color: 0xFFFFFF
+                  x: 54
+                  y: 40
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 4
+            y: 94
+            width: 152
+            height: 40
+            styles: style_card
+            widgets:
+              - label:
+                  text: "\U000F06B5 WiFi"
+                  text_font: roboto_14
+                  text_color: 0x448AFF
+                  x: 0
+                  y: 0
+              - label:
+                  id: lbl_wifi_signal
+                  text: "-- dBm"
+                  text_font: roboto_14
+                  text_color: 0xFFFFFF
+                  x: 0
+                  y: 18
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 164
+            y: 94
+            width: 152
+            height: 40
+            styles: style_card
+            widgets:
+              - label:
+                  text: "\U000F0769 Usage"
+                  text_font: roboto_14
+                  text_color: 0x00E676
+                  x: 0
+                  y: 0
+              - label:
+                  id: lbl_total_usage
+                  text: "-- hrs"
+                  text_font: roboto_14
+                  text_color: 0xFFFFFF
+                  x: 0
+                  y: 18
+        - obj:
+            scrollbar_mode: "OFF"
+            x: 4
+            y: 140
+            width: 312
+            height: 40
+            styles: style_card
+            widgets:
+              - label:
+                  text: "\U000F0F96 Nozzle:"
+                  text_font: roboto_14
+                  text_color: 0xFF6E40
+                  x: 0
+                  y: 4
+              - label:
+                  id: lbl_info_nozzle_size
+                  text: "--"
+                  text_font: roboto_14
+                  text_color: 0xFFFFFF
+                  x: 76
+                  y: 4
+              - label:
+                  id: lbl_info_nozzle_type
+                  text: "--"
+                  text_font: roboto_14
+                  text_color: 0xFFFFFF
+                  x: 126
+                  y: 4
+
+  top_layer:
+    widgets:
+      - buttonmatrix:
+          align: BOTTOM_MID
+          width: 320
+          height: 32
+          styles: style_nav
+          pad_all: 0
+          outline_width: 0
+          items:
+            bg_color: 0x16213E
+            bg_opa: COVER
+            border_color: 0x0F3460
+            border_width: 1
+            text_color: 0x7878A0
+            text_font: mdi_18
+            pressed:
+              bg_color: 0x0F3460
+              text_color: 0x00E676
+          rows:
+            - buttons:
+                - id: nav_status
+                  text: "\U000F0A7A"
+                  on_press:
+                    then:
+                      - lvgl.page.show:
+                          id: page_status
+                          animation: FADE_IN
+                          time: 200ms
+                - id: nav_temps
+                  text: "\U000F050F"
+                  on_press:
+                    then:
+                      - lvgl.page.show:
+                          id: page_temps
+                          animation: FADE_IN
+                          time: 200ms
+                - id: nav_ams
+                  text: "\U000F0493"
+                  on_press:
+                    then:
+                      - lvgl.page.show:
+                          id: page_ams
+                          animation: FADE_IN
+                          time: 200ms
+                - id: nav_info
+                  text: "\U000F02DC"
+                  on_press:
+                    then:
+                      - lvgl.page.show:
+                          id: page_info
+                          animation: FADE_IN
+                          time: 200ms
+
+  on_idle:
+    - timeout: 60s
+      then:
+        - light.turn_on:
+            id: backlight
+            brightness: 30%
+            transition_length: 1s
+    - timeout: 300s
+      then:
+        - light.turn_off:
+            id: backlight
+            transition_length: 2s
