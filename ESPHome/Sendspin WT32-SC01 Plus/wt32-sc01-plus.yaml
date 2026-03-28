@@ -3,7 +3,8 @@
 # https://gist.githubusercontent.com/kahrendt/a86b20601f02df9f3861a48cedc98e17/raw/941be5c3c4d553dc589823aecbfe730dae99d229/esp32-s3-box-3-sendspin.yml
 # Display: 480x320 with MIPI SPI
 # Touchscreen: FT63X6
-# Uses Sendspin PR: https://github.com/esphome/esphome/pull/12284
+# Uses Sendspin PR: https://github.com/esphome/esphome/pull/14933
+# Requires ESPHome 2026.3.0 or later
 
 substitutions:
   name: wt32-sc01-plus
@@ -22,7 +23,7 @@ substitutions:
 esphome:
   name: ${name}
   friendly_name: ${friendly_name}
-  min_version: 2025.5.0
+  min_version: 2026.3.0
   name_add_mac_suffix: true
   platformio_options:
     build_flags: 
@@ -117,14 +118,9 @@ touchscreen:
           }
 
 external_components:
-  - source: github://pr#10212
-    components: [runtime_image, online_image]
+  - source: github://pr#14933
+    components: [const, generic_image, sendspin]
     refresh: 1h
-  - source: github://pr#12258
-    components: [ media_player ]
-  - source: github://pr#12284
-    components: [generic_image, mdns, sendspin]
-    refresh: 0s
 
 sendspin:
   id: sendspin_hub
@@ -135,7 +131,7 @@ generic_image:
     id: sendspin_cover_art
     format: jpg
     type: rgb565
-    resize: 300x300  # Larger for higher resolution display
+    resize: 300x300
     image_source: ALBUM
     on_image_decoded:
       - if:
@@ -171,7 +167,7 @@ generic_image:
     id: sendspin_artist_picture
     format: jpg
     type: rgb565
-    resize: 300x300  # Larger for higher resolution display
+    resize: 300x300
     image_source: ARTIST
     on_image_decoded:
       - lvgl.image.update: 
@@ -238,14 +234,14 @@ font:
       family: ${font_family}
       weight: 300
     id: font_display
-    size: 24  # Slightly larger for bigger display
+    size: 24
     glyphsets:
       - ${font_glyphsets}
 
   # Material Design Icons font for media controls
   - file: https://github.com/Templarian/MaterialDesign-Webfont/raw/refs/heads/master/fonts/materialdesignicons-webfont.ttf
     id: font_mdi
-    size: 48  # Larger for bigger display
+    size: 48
     glyphs: [
       "\U000F03E4",  # mdi:pause
       "\U000F040A",  # mdi:play
@@ -340,8 +336,8 @@ lvgl:
           bg_opa: 60%  # Semi-transparent background
           border_width: 0
           radius: 10
-          scrollbar_mode: "OFF"  # Hide scrollbars
-          scrollable: false  # Disable scrolling completely
+          scrollbar_mode: "OFF" 
+          scrollable: false
           hidden: true  # Initially hidden
           widgets:
             # Previous button
