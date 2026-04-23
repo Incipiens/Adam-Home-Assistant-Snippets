@@ -1,0 +1,340 @@
+substitutions:
+  device_name: bambu-epaper
+  friendly_name: Bambu E-Paper Monitor
+  # Change this to your Bambu Lab printer's entity prefix
+  printer: printer_id
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  on_boot:
+    priority: -10
+    then:
+      - delay: 5s
+      - component.update: epaper_display
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: arduino
+
+psram:
+  mode: octal
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [it8951_reterminal_e1003]
+
+# I2C bus for the GT911 touchscreen
+i2c:
+  - sda: GPIO19
+    scl: GPIO20
+    scan: true
+    id: bus_a
+
+# SPI for the IT8951 e-paper controller
+spi:
+  - id: it8951_spi
+    clk_pin: GPIO7
+    mosi_pin: GPIO9
+    miso_pin: GPIO8
+
+touchscreen:
+  - platform: gt911
+    id: touchscreen_panel
+    interrupt_pin: GPIO2
+    on_touch:
+      - component.update: epaper_display
+
+# Refresh every 60s, but you can turn this off or change it to use deep sleep logic instead
+interval:
+  - interval: 60s
+    then:
+      - component.update: epaper_display
+
+font:
+  - file: "gfonts://Roboto"
+    id: font_small
+    size: 26
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °"
+  - file: "gfonts://Roboto"
+    id: font_med
+    size: 36
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °"
+  - file: "gfonts://Roboto@700"
+    id: font_bold
+    size: 52
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °"
+  - file: "gfonts://Roboto@700"
+    id: font_header
+    size: 48
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °"
+  - file: "gfonts://Roboto@700"
+    id: font_huge
+    size: 180
+    glyphs: "!\"#$%&'()*+,-./0123456789"
+
+# Home Assistant sensors, use on_value handlers if you want it to be event driven
+text_sensor:
+  - platform: homeassistant
+    id: ha_print_status
+    entity_id: sensor.${printer}_print_status
+  - platform: homeassistant
+    id: ha_current_stage
+    entity_id: sensor.${printer}_current_stage
+  - platform: homeassistant
+    id: ha_task_name
+    entity_id: sensor.${printer}_task_name
+  - platform: homeassistant
+    id: ha_speed_profile
+    entity_id: sensor.${printer}_speed_profile
+  - platform: homeassistant
+    id: ha_active_tray
+    entity_id: sensor.${printer}_active_tray
+  - platform: homeassistant
+    id: ha_nozzle_type
+    entity_id: sensor.${printer}_nozzle_type
+  - platform: homeassistant
+    id: ha_ams1_tray1
+    entity_id: sensor.${printer}_ams_1_tray_1
+  - platform: homeassistant
+    id: ha_ams1_tray2
+    entity_id: sensor.${printer}_ams_1_tray_2
+  - platform: homeassistant
+    id: ha_ams1_tray3
+    entity_id: sensor.${printer}_ams_1_tray_3
+  - platform: homeassistant
+    id: ha_ams1_tray4
+    entity_id: sensor.${printer}_ams_1_tray_4
+
+sensor:
+  - platform: homeassistant
+    id: ha_print_progress
+    entity_id: sensor.${printer}_print_progress
+  - platform: homeassistant
+    id: ha_nozzle_temp
+    entity_id: sensor.${printer}_nozzle_temperature
+  - platform: homeassistant
+    id: ha_nozzle_target
+    entity_id: sensor.${printer}_nozzle_target_temperature
+  - platform: homeassistant
+    id: ha_bed_temp
+    entity_id: sensor.${printer}_bed_temperature
+  - platform: homeassistant
+    id: ha_bed_target
+    entity_id: sensor.${printer}_bed_target_temperature
+  - platform: homeassistant
+    id: ha_chamber_temp
+    entity_id: sensor.${printer}_chamber_temperature
+  - platform: homeassistant
+    id: ha_remaining_time
+    entity_id: sensor.${printer}_remaining_time
+  - platform: homeassistant
+    id: ha_current_layer
+    entity_id: sensor.${printer}_current_layer
+  - platform: homeassistant
+    id: ha_total_layers
+    entity_id: sensor.${printer}_total_layer_count
+  - platform: homeassistant
+    id: ha_aux_fan
+    entity_id: sensor.${printer}_aux_fan_speed
+  - platform: homeassistant
+    id: ha_chamber_fan
+    entity_id: sensor.${printer}_chamber_fan_speed
+  - platform: homeassistant
+    id: ha_cooling_fan
+    entity_id: sensor.${printer}_cooling_fan_speed
+  - platform: homeassistant
+    id: ha_heatbreak_fan
+    entity_id: sensor.${printer}_heatbreak_fan_speed
+  - platform: homeassistant
+    id: ha_nozzle_size
+    entity_id: sensor.${printer}_nozzle_size
+  - platform: homeassistant
+    id: ha_ams1_humidity
+    entity_id: sensor.${printer}_ams_1_humidity
+  - platform: homeassistant
+    id: ha_wifi_signal
+    entity_id: sensor.${printer}_wi_fi_signal
+  - platform: homeassistant
+    id: ha_total_usage
+    entity_id: sensor.${printer}_total_usage
+
+binary_sensor:
+  - platform: homeassistant
+    id: ha_online
+    entity_id: binary_sensor.${printer}_online
+  - platform: homeassistant
+    id: ha_door
+    entity_id: binary_sensor.${printer}_enclosure_door
+  - platform: homeassistant
+    id: ha_hms_errors
+    entity_id: binary_sensor.${printer}_hms_errors
+
+# IT8951
+display:
+  - platform: it8951_reterminal_e1003
+    id: epaper_display
+    vcom: 1400
+    update_interval: never
+    lambda: |-
+      // The IT8951 driver here treats 0 as white and 255 as black
+      const auto WHITE = Color(0, 0, 0);
+      const auto BLACK = Color(255, 255, 255);
+
+      it.fill(WHITE);
+
+      // Header
+      it.filled_rectangle(0, 0, 1872, 90, BLACK);
+      it.print(40, 22, id(font_header), WHITE, "Bambu P2S");
+      it.print(1600, 28, id(font_med), WHITE, id(ha_online).state ? "Online" : "Offline");
+
+      // Progress circle
+      int cx = 320, cy = 540;
+      for (int r = 260; r >= 256; r--) {
+        it.circle(cx, cy, r, BLACK);
+      }
+
+      int progress = (int)id(ha_print_progress).state;
+      char pct[8];
+      snprintf(pct, sizeof(pct), "%d%%", progress);
+      it.printf(cx, cy - 110, id(font_huge), BLACK, TextAlign::TOP_CENTER, "%s", pct);
+
+      std::string status = id(ha_print_status).state;
+      if (status == "finish") status = "Finished";
+      else if (status == "running") status = "Printing";
+      else if (status == "pause") status = "Paused";
+      else if (status == "idle") status = "Idle";
+      else if (status == "prepare") status = "Preparing";
+      else if (status == "failed") status = "Failed";
+      it.printf(cx, cy + 100, id(font_med), BLACK, TextAlign::TOP_CENTER, "%s", status.c_str());
+
+      std::string stage = id(ha_current_stage).state;
+      if (stage == "idle") stage = "Idle";
+      else if (stage == "printing") stage = "Printing";
+      else if (stage == "auto_bed_leveling") stage = "Bed Leveling";
+      else if (stage == "heatbed_preheating") stage = "Heating Bed";
+      else if (stage == "sweeping_xp_area") stage = "Sweeping";
+      else if (stage == "changing_filament") stage = "Filament Change";
+      else if (stage == "heating_hotend") stage = "Heating Nozzle";
+      else if (stage == "calibrating_extrusion") stage = "Calibrating";
+      else if (stage == "scanning_bed_surface") stage = "Scanning Bed";
+      else if (stage == "inspecting_first_layer") stage = "1st Layer Check";
+      else if (stage == "cleaning_nozzle_tip") stage = "Cleaning Nozzle";
+      it.printf(cx, cy + 150, id(font_small), BLACK, TextAlign::TOP_CENTER, "%s", stage.c_str());
+
+      // Right-hand info column
+      int rx = 680, ry = 130;
+
+      it.print(rx, ry, id(font_small), BLACK, "Task:");
+      it.print(rx + 140, ry - 4, id(font_med), BLACK, id(ha_task_name).state.c_str());
+      ry += 90;
+
+      int mins = (int)id(ha_remaining_time).state;
+      char tbuf[48];
+      if (mins <= 0) {
+        snprintf(tbuf, sizeof(tbuf), "Done");
+      } else {
+        int h = mins / 60;
+        int m = mins % 60;
+        if (h > 0) snprintf(tbuf, sizeof(tbuf), "%dh %dm remaining", h, m);
+        else snprintf(tbuf, sizeof(tbuf), "%dm remaining", m);
+      }
+      it.print(rx, ry, id(font_med), BLACK, tbuf);
+      ry += 90;
+
+      int cur_layer = (int)id(ha_current_layer).state;
+      int total_layers = (int)id(ha_total_layers).state;
+      it.printf(rx, ry, id(font_med), BLACK, "Layer %d / %d", cur_layer, total_layers);
+      ry += 90;
+
+      std::string speed = id(ha_speed_profile).state;
+      if (speed == "silent") speed = "Silent";
+      else if (speed == "standard") speed = "Standard";
+      else if (speed == "sport") speed = "Sport";
+      else if (speed == "ludicrous") speed = "Ludicrous";
+      it.printf(rx, ry, id(font_med), BLACK, "Speed: %s", speed.c_str());
+
+      // Temperatures
+      int ty = 840;
+      int tw = 580, th = 150;
+
+      it.rectangle(40, ty, tw, th, BLACK);
+      it.print(60, ty + 12, id(font_small), BLACK, "Nozzle");
+      it.printf(60, ty + 48, id(font_bold), BLACK, "%.0f °C", id(ha_nozzle_temp).state);
+      it.printf(60, ty + 110, id(font_small), BLACK, "Target: %.0f °C", id(ha_nozzle_target).state);
+
+      it.rectangle(640, ty, tw, th, BLACK);
+      it.print(660, ty + 12, id(font_small), BLACK, "Bed");
+      it.printf(660, ty + 48, id(font_bold), BLACK, "%.0f °C", id(ha_bed_temp).state);
+      it.printf(660, ty + 110, id(font_small), BLACK, "Target: %.0f °C", id(ha_bed_target).state);
+
+      it.rectangle(1240, ty, tw, th, BLACK);
+      it.print(1260, ty + 12, id(font_small), BLACK, "Chamber");
+      it.printf(1260, ty + 48, id(font_bold), BLACK, "%.0f °C", id(ha_chamber_temp).state);
+
+      // Fans
+      int fy = 1010;
+      it.printf(60, fy, id(font_small), BLACK, "Part: %d%%", (int)id(ha_cooling_fan).state);
+      it.printf(500, fy, id(font_small), BLACK, "Aux: %d%%", (int)id(ha_aux_fan).state);
+      it.printf(900, fy, id(font_small), BLACK, "Chamber: %d%%", (int)id(ha_chamber_fan).state);
+      it.printf(1400, fy, id(font_small), BLACK, "Heatbreak: %d%%", (int)id(ha_heatbreak_fan).state);
+
+      // AMS
+      int ay = 1060;
+      it.rectangle(40, ay, 1792, 230, BLACK);
+      it.print(60, ay + 12, id(font_small), BLACK, "AMS");
+
+      it.printf(60, ay + 54, id(font_small), BLACK, "T1: %s", id(ha_ams1_tray1).state.c_str());
+      it.printf(500, ay + 54, id(font_small), BLACK, "T2: %s", id(ha_ams1_tray2).state.c_str());
+      it.printf(940, ay + 54, id(font_small), BLACK, "T3: %s", id(ha_ams1_tray3).state.c_str());
+      it.printf(1380, ay + 54, id(font_small), BLACK, "T4: %s", id(ha_ams1_tray4).state.c_str());
+
+      std::string nozzle_type = id(ha_nozzle_type).state;
+      if (nozzle_type == "hardened_steel") nozzle_type = "Hardened Steel";
+      else if (nozzle_type == "stainless_steel") nozzle_type = "Stainless Steel";
+
+      it.printf(60, ay + 110, id(font_small), BLACK,
+                "Active: %s    Nozzle: %.1fmm %s    Humidity: %.0f%%",
+                id(ha_active_tray).state.c_str(),
+                id(ha_nozzle_size).state,
+                nozzle_type.c_str(),
+                id(ha_ams1_humidity).state);
+
+      it.printf(60, ay + 160, id(font_small), BLACK,
+                "Door: %s      HMS: %s      WiFi: %.0f dBm      Total use: %.1f hrs",
+                id(ha_door).state ? "Open" : "Closed",
+                id(ha_hms_errors).state ? "ERRORS" : "Clear",
+                id(ha_wifi_signal).state,
+                id(ha_total_usage).state);
+
+      // Footer
+      it.line(40, 1320, 1832, 1320, BLACK);
+      it.print(40, 1340, id(font_small), BLACK, "reTerminal E1003  -  ESPHome");
+
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "x"
+
+ota:
+  - platform: esphome
+    password: "x"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Reterminale1003-P2S"
+    password: "x"
+
+captive_portal:
+    
