@@ -1,0 +1,477 @@
+substitutions:
+  device_name: reterminal-e1003-touch
+  friendly_name: reTerminal E1003 touch screen dashboard
+  printer: xxx
+  ha_base_url: "http://homeassistant.local:8123"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  on_boot:
+    priority: -10
+    then:
+      - delay: 15s
+      - component.update: epaper_display
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: arduino
+
+psram:
+  mode: octal
+
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [it8951_reterminal_e1003]
+
+i2c:
+  - sda: GPIO19
+    scl: GPIO20
+    scan: true
+    id: bus_a
+
+spi:
+  - id: it8951_spi
+    clk_pin: GPIO7
+    mosi_pin: GPIO9
+    miso_pin: GPIO8
+
+touchscreen:
+  - platform: gt911
+    id: touchscreen_panel
+    interrupt_pin: GPIO2
+
+script:
+  - id: debounced_redraw
+    mode: restart
+    then:
+      - delay: 1s
+      - component.update: epaper_display
+
+  - id: media_prev
+    then:
+      - homeassistant.action:
+          action: media_player.media_previous_track
+          data:
+            entity_id: media_player.spotify_adam_conway
+
+  - id: media_next
+    then:
+      - homeassistant.action:
+          action: media_player.media_next_track
+          data:
+            entity_id: media_player.spotify_adam_conway
+
+  - id: media_playpause
+    then:
+      - homeassistant.action:
+          action: media_player.media_play_pause
+          data:
+            entity_id: media_player.spotify_adam_conway
+
+  - id: toggle_bedroom
+    then:
+      - homeassistant.action:
+          action: light.toggle
+          data:
+            entity_id: light.bedroom
+
+  - id: toggle_office
+    then:
+      - homeassistant.action:
+          action: light.toggle
+          data:
+            entity_id: light.office_light
+
+  - id: toggle_bedside
+    then:
+      - homeassistant.action:
+          action: light.toggle
+          data:
+            entity_id: light.yeelink_de_75404622_bslamp1_s_2_light
+
+  - id: wol_pc
+    then:
+      - homeassistant.action:
+          action: opnsense.send_wol
+          data:
+            mac: "34:5a:60:06:0e:59"
+            interface: lan
+
+interval:
+  - interval: 60s
+    then:
+      - component.update: epaper_display
+
+font:
+  - file: "gfonts://Roboto"
+    id: font_small
+    size: 26
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °"
+  - file: "gfonts://Roboto"
+    id: font_med
+    size: 36
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °"
+  - file: "gfonts://Roboto@700"
+    id: font_bold
+    size: 52
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °"
+  - file: "gfonts://Roboto@700"
+    id: font_header
+    size: 48
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °"
+  - file: "gfonts://Roboto@700"
+    id: font_btn
+    size: 40
+    glyphs: "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~ °"
+
+http_request:
+  verify_ssl: false
+  timeout: 10s
+
+# Currently unused, but could be replaced with server-side processing of image
+online_image:
+  - id: album_art
+    url: "${ha_base_url}/api/media_player_proxy/media_player.spotify_adam_conway"
+    format: jpeg
+    type: BINARY
+    resize: 420x420
+    buffer_size: 65536
+    update_interval: never
+    on_download_finished:
+      - component.update: epaper_display
+    on_error:
+      - logger.log:
+          format: "album_art download/decode failed"
+          level: WARN
+
+text_sensor:
+  - platform: homeassistant
+    id: ha_print_status
+    entity_id: sensor.${printer}_print_status
+    on_value:
+      - script.execute: debounced_redraw
+  - platform: homeassistant
+    id: ha_media_state
+    entity_id: media_player.spotify_adam_conway
+    on_value:
+      - script.execute: debounced_redraw
+  - platform: homeassistant
+    id: ha_media_title
+    entity_id: media_player.spotify_adam_conway
+    attribute: media_title
+    on_value:
+      - script.execute: debounced_redraw
+  - platform: homeassistant
+    id: ha_media_artist
+    entity_id: media_player.spotify_adam_conway
+    attribute: media_artist
+  - platform: homeassistant
+    id: ha_media_album
+    entity_id: media_player.spotify_adam_conway
+    attribute: media_album_name
+
+sensor:
+  - platform: homeassistant
+    id: ha_print_progress
+    entity_id: sensor.${printer}_print_progress
+    on_value:
+      - script.execute: debounced_redraw
+  - platform: homeassistant
+    id: ha_remaining_time
+    entity_id: sensor.${printer}_remaining_time
+  - platform: homeassistant
+    id: ha_nozzle_temp
+    entity_id: sensor.${printer}_nozzle_temperature
+  - platform: homeassistant
+    id: ha_bed_temp
+    entity_id: sensor.${printer}_bed_temperature
+
+  - platform: homeassistant
+    id: ha_living_temp
+    entity_id: sensor.living_room_temp_humidity_temperature
+  - platform: homeassistant
+    id: ha_living_hum
+    entity_id: sensor.living_room_temp_humidity_humidity
+  - platform: homeassistant
+    id: ha_bedroom_temp
+    entity_id: sensor.bedroom_temp_humidity_temperature
+  - platform: homeassistant
+    id: ha_bedroom_hum
+    entity_id: sensor.bedroom_temp_humidity_humidity
+
+  - platform: homeassistant
+    id: ha_power_pc
+    entity_id: sensor.advanced_energy_monitoring_smartplug_power
+  - platform: homeassistant
+    id: ha_power_net
+    entity_id: sensor.networking_power_plug_power
+  - platform: homeassistant
+    id: ha_power_pve
+    entity_id: sensor.nas_smart_plug_power
+
+binary_sensor:
+  - platform: homeassistant
+    id: ha_online
+    entity_id: binary_sensor.${printer}_online
+
+  - platform: homeassistant
+    id: ha_light_bedroom
+    entity_id: light.bedroom
+    on_state:
+      - script.execute: debounced_redraw
+  - platform: homeassistant
+    id: ha_light_office
+    entity_id: light.office_light
+    on_state:
+      - script.execute: debounced_redraw
+  - platform: homeassistant
+    id: ha_light_bedside
+    entity_id: light.bedside_light
+    on_state:
+      - script.execute: debounced_redraw
+
+  - platform: homeassistant
+    id: ha_water_leak
+    entity_id: binary_sensor.water_leak_xs_sensor_water_leak_detected
+    on_state:
+      - script.execute: debounced_redraw
+
+  - platform: touchscreen
+    name: "Touch Media Prev"
+    x_min: 500
+    x_max: 700
+    y_min: 410
+    y_max: 530
+    on_press:
+      - script.execute: media_prev
+      - script.execute: debounced_redraw
+
+  - platform: touchscreen
+    name: "Touch Media PlayPause"
+    x_min: 740
+    x_max: 940
+    y_min: 410
+    y_max: 530
+    on_press:
+      - script.execute: media_playpause
+      - script.execute: debounced_redraw
+
+  - platform: touchscreen
+    name: "Touch Media Next"
+    x_min: 980
+    x_max: 1180
+    y_min: 410
+    y_max: 530
+    on_press:
+      - script.execute: media_next
+      - script.execute: debounced_redraw
+
+  - platform: touchscreen
+    name: "Touch Light Bedroom"
+    x_min: 40
+    x_max: 620
+    y_min: 580
+    y_max: 730
+    on_press:
+      - script.execute: toggle_bedroom
+      - script.execute: debounced_redraw
+
+  - platform: touchscreen
+    name: "Touch Light Office"
+    x_min: 640
+    x_max: 1220
+    y_min: 580
+    y_max: 730
+    on_press:
+      - script.execute: toggle_office
+      - script.execute: debounced_redraw
+
+  - platform: touchscreen
+    name: "Touch Light Bedside"
+    x_min: 1240
+    x_max: 1820
+    y_min: 580
+    y_max: 730
+    on_press:
+      - script.execute: toggle_bedside
+      - script.execute: debounced_redraw
+
+  - platform: touchscreen
+    name: "Touch WoL PC"
+    x_min: 1500
+    x_max: 1820
+    y_min: 1030
+    y_max: 1150
+    on_press:
+      - script.execute: wol_pc
+      - script.execute: debounced_redraw
+
+display:
+  - platform: it8951_reterminal_e1003
+    id: epaper_display
+    vcom: 1400
+    update_interval: never
+    lambda: |-
+      // inverted: panel treats 0=white
+      const auto WHITE = Color(0, 0, 0);
+      const auto BLACK = Color(255, 255, 255);
+
+      it.fill(WHITE);
+
+      it.filled_rectangle(0, 0, 1872, 90, BLACK);
+      it.print(40, 22, id(font_header), WHITE, "Smart Home");
+      it.printf(1500, 28, id(font_med), WHITE, "%s", id(ha_water_leak).state ? "LEAK!" : "All Clear");
+
+      int art_x = 40, art_y = 110, art_size = 420;
+      it.rectangle(art_x, art_y, art_size, art_size, BLACK);
+      if (id(album_art).get_width() > 0) {
+        it.image(art_x, art_y, id(album_art), BLACK, WHITE);
+      } else {
+        it.print(art_x + art_size/2, art_y + art_size/2 - 10, id(font_small), BLACK, TextAlign::CENTER, "(no art)");
+      }
+
+      int np_x = 500, np_y = 110;
+      it.print(np_x, np_y, id(font_small), BLACK, "Now Playing");
+
+      std::string title = id(ha_media_title).state;
+      std::string artist = id(ha_media_artist).state;
+      std::string album = id(ha_media_album).state;
+      if (title.empty() || title == "unknown") title = "Nothing playing";
+      if (artist.empty() || artist == "unknown") artist = "";
+      if (album.empty() || album == "unknown") album = "";
+
+      if (title.length() > 40) title = title.substr(0, 37) + "...";
+      if (artist.length() > 50) artist = artist.substr(0, 47) + "...";
+      if (album.length() > 50) album = album.substr(0, 47) + "...";
+
+      it.printf(np_x, np_y + 40, id(font_bold), BLACK, "%s", title.c_str());
+      it.printf(np_x, np_y + 120, id(font_med), BLACK, "%s", artist.c_str());
+      it.printf(np_x, np_y + 180, id(font_small), BLACK, "%s", album.c_str());
+
+      it.rectangle(500, 410, 200, 120, BLACK);
+      it.print(600, 450, id(font_btn), BLACK, TextAlign::CENTER, "<<");
+
+      it.rectangle(740, 410, 200, 120, BLACK);
+      {
+        const char *pp = (id(ha_media_state).state == "playing") ? "||" : ">";
+        it.print(840, 450, id(font_btn), BLACK, TextAlign::CENTER, pp);
+      }
+
+      it.rectangle(980, 410, 200, 120, BLACK);
+      it.print(1080, 450, id(font_btn), BLACK, TextAlign::CENTER, ">>");
+
+      const char *mstate = id(ha_media_state).state.c_str();
+      it.printf(1220, 450, id(font_small), BLACK, "State: %s", mstate);
+
+      auto draw_light_btn = [&](int x, const char *label, bool on) {
+        if (on) {
+          it.filled_rectangle(x, 580, 580, 150, BLACK);
+          it.print(x + 290, 610, id(font_btn), WHITE, TextAlign::CENTER, label);
+          it.print(x + 290, 680, id(font_small), WHITE, TextAlign::CENTER, "ON  (tap to toggle)");
+        } else {
+          it.rectangle(x, 580, 580, 150, BLACK);
+          it.print(x + 290, 610, id(font_btn), BLACK, TextAlign::CENTER, label);
+          it.print(x + 290, 680, id(font_small), BLACK, TextAlign::CENTER, "OFF (tap to toggle)");
+        }
+      };
+      draw_light_btn(40, "Bedroom", id(ha_light_bedroom).state);
+      draw_light_btn(640, "Office", id(ha_light_office).state);
+      draw_light_btn(1240, "Bedside", id(ha_light_bedside).state);
+
+      it.rectangle(40, 750, 900, 250, BLACK);
+      it.print(60, 762, id(font_small), BLACK, "Rooms");
+
+      it.print(60, 804, id(font_small), BLACK, "Living");
+      it.printf(60, 840, id(font_bold), BLACK, "%.1f °C", id(ha_living_temp).state);
+      it.printf(60, 910, id(font_small), BLACK, "Humidity: %.0f%%", id(ha_living_hum).state);
+
+      it.print(500, 804, id(font_small), BLACK, "Bedroom");
+      it.printf(500, 840, id(font_bold), BLACK, "%.1f °C", id(ha_bedroom_temp).state);
+      it.printf(500, 910, id(font_small), BLACK, "Humidity: %.0f%%", id(ha_bedroom_hum).state);
+
+      it.rectangle(960, 750, 872, 250, BLACK);
+      it.print(980, 762, id(font_small), BLACK, "Power");
+
+      it.print(980, 804, id(font_small), BLACK, "PC");
+      it.printf(980, 840, id(font_bold), BLACK, "%.0f W", id(ha_power_pc).state);
+
+      it.print(1280, 804, id(font_small), BLACK, "Network");
+      it.printf(1280, 840, id(font_bold), BLACK, "%.0f W", id(ha_power_net).state);
+
+      it.print(1580, 804, id(font_small), BLACK, "PVE3");
+      it.printf(1580, 840, id(font_bold), BLACK, "%.0f W", id(ha_power_pve).state);
+
+      float total_w = id(ha_power_pc).state + id(ha_power_net).state + id(ha_power_pve).state;
+      it.printf(980, 920, id(font_small), BLACK, "Total: %.0f W", total_w);
+
+      it.rectangle(40, 1020, 1440, 270, BLACK);
+      it.print(60, 1032, id(font_small), BLACK, "Bambu P2S");
+      it.printf(1300, 1032, id(font_small), BLACK, "%s", id(ha_online).state ? "Online" : "Offline");
+
+      int progress = (int)id(ha_print_progress).state;
+      it.printf(60, 1070, id(font_bold), BLACK, "%d%%", progress);
+
+      it.rectangle(220, 1085, 1200, 50, BLACK);
+      int bar_w = (int)(1196.0f * progress / 100.0f);
+      if (bar_w > 0) it.filled_rectangle(222, 1087, bar_w, 46, BLACK);
+
+      std::string status = id(ha_print_status).state;
+      if (status == "finish") status = "Finished";
+      else if (status == "running") status = "Printing";
+      else if (status == "pause") status = "Paused";
+      else if (status == "idle") status = "Idle";
+      else if (status == "prepare") status = "Preparing";
+      else if (status == "failed") status = "Failed";
+
+      int mins = (int)id(ha_remaining_time).state;
+      char tbuf[48];
+      if (mins <= 0) snprintf(tbuf, sizeof(tbuf), "Done");
+      else if (mins >= 60) snprintf(tbuf, sizeof(tbuf), "%dh %dm left", mins/60, mins%60);
+      else snprintf(tbuf, sizeof(tbuf), "%dm left", mins);
+
+      it.printf(60, 1160, id(font_med), BLACK, "Status: %s", status.c_str());
+      it.printf(60, 1210, id(font_med), BLACK, "%s", tbuf);
+      it.printf(700, 1160, id(font_med), BLACK, "Nozzle: %.0f °C", id(ha_nozzle_temp).state);
+      it.printf(700, 1210, id(font_med), BLACK, "Bed: %.0f °C", id(ha_bed_temp).state);
+
+      it.filled_rectangle(1500, 1030, 320, 120, BLACK);
+      it.print(1660, 1060, id(font_btn), WHITE, TextAlign::CENTER, "Wake PC");
+      it.print(1660, 1115, id(font_small), WHITE, TextAlign::CENTER, "tap to send WoL");
+
+      if (id(ha_water_leak).state) {
+        it.filled_rectangle(1500, 1170, 320, 120, BLACK);
+        it.print(1660, 1200, id(font_btn), WHITE, TextAlign::CENTER, "WATER");
+        it.print(1660, 1245, id(font_btn), WHITE, TextAlign::CENTER, "LEAK!");
+      } else {
+        it.rectangle(1500, 1170, 320, 120, BLACK);
+        it.print(1660, 1205, id(font_small), BLACK, TextAlign::CENTER, "Water sensor");
+        it.print(1660, 1245, id(font_small), BLACK, TextAlign::CENTER, "OK");
+      }
+
+      it.line(40, 1320, 1832, 1320, BLACK);
+
+      it.print(40, 1340, id(font_small), BLACK, "reTerminal E1003  -  Smart Home Dashboard");
+      it.print(1832, 1340, id(font_small), BLACK, TextAlign::TOP_RIGHT, "Tap any control");
+
+logger:
+
+api:
+  encryption:
+    key: "xx"
+
+ota:
+  - platform: esphome
+    password: "xx"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "Reterminale1003-SmartHome"
+    password: "xx"
+
+captive_portal:
