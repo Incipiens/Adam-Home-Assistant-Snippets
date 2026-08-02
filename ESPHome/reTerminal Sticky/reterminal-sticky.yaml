@@ -1,0 +1,508 @@
+substitutions:
+  device_name: reterminal-sticky
+  friendly_name: "reTerminal Sticky"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  min_version: 2026.7.0
+
+  on_boot:
+    - priority: 900
+      then:
+        - lambda: |-
+            gpio_deep_sleep_hold_dis();
+            gpio_hold_dis(GPIO_NUM_42);
+            gpio_hold_dis(GPIO_NUM_45);
+            gpio_hold_dis(GPIO_NUM_46);
+
+    - priority: 600
+      then:
+        - output.turn_on: pwr_hold
+        - output.turn_on: pwr_lock
+        - switch.turn_on: touch_power_enable
+        - pcf8563.read_time:
+
+    - priority: -100
+      then:
+        - delay: 2s
+        - component.update: epaper_display
+
+  on_shutdown:
+    then:
+      - lambda: |-
+          gpio_hold_en(GPIO_NUM_45);
+          gpio_hold_en(GPIO_NUM_46);
+          gpio_deep_sleep_hold_en();
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: ESP32S3
+  flash_size: 32MB
+  framework:
+    type: esp-idf
+    advanced:
+      enable_idf_experimental_features: true
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  hardware_uart: UART0
+
+spi:
+  clk_pin: GPIO13
+  mosi_pin: GPIO14
+  miso_pin: GPIO12
+
+i2c:
+  - id: i2c_sensor
+    scl: GPIO0
+    sda: GPIO1
+    frequency: 400kHz
+
+  - id: i2c_touch
+    scl: GPIO2
+    sda: GPIO3
+    frequency: 100kHz
+
+i2s_audio:
+  - id: i2s_mic_bus
+    i2s_lrclk_pin: GPIO19
+
+font:
+  - file: "gfonts://Inter@700"
+    id: font_small
+    size: 20
+  - file: "gfonts://Inter@700"
+    id: font_medium
+    size: 32
+  - file: "gfonts://Inter@700"
+    id: font_large
+    size: 48
+
+globals:
+  - id: last_query
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+  - id: last_response
+    type: std::string
+    restore_value: no
+    initial_value: '""'
+  - id: mic_active
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+  - id: mic_peak
+    type: int32_t
+    restore_value: no
+    initial_value: '0'
+  - id: mic_rms
+    type: float
+    restore_value: no
+    initial_value: '0'
+
+output:
+  - platform: gpio
+    pin: GPIO45
+    id: pwr_hold
+
+  - platform: gpio
+    pin: GPIO46
+    id: pwr_lock
+
+  - platform: ledc
+    pin: GPIO48
+    id: buzzer_pwm
+    frequency: 1000Hz
+
+  - platform: gpio
+    pin: GPIO38
+    id: mic_power_enable
+
+light:
+  - platform: monochromatic
+    output: buzzer_pwm
+    name: "Buzzer"
+    id: buzzer
+    default_transition_length: 0s
+
+switch:
+  - platform: gpio
+    pin: GPIO42
+    id: touch_power_enable
+    internal: true
+    restore_mode: ALWAYS_ON
+    setup_priority: 1100
+
+  - platform: gpio
+    pin:
+      number: GPIO39
+      inverted: true
+    id: charge_enable
+    name: "Charging Enabled"
+    restore_mode: ALWAYS_ON
+
+  - platform: template
+    name: "Prevent Deep Sleep"
+    id: prevent_sleep
+    icon: mdi:sleep-off
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    turn_on_action:
+      - deep_sleep.prevent: deep_sleep_1
+      - component.update: epaper_display
+    turn_off_action:
+      - deep_sleep.allow: deep_sleep_1
+      - component.update: epaper_display
+
+script:
+  - id: beep
+    mode: restart
+    then:
+      - light.turn_on:
+          id: buzzer
+          brightness: 50%
+      - delay: 120ms
+      - light.turn_off: buzzer
+
+interval:
+  - interval: 500ms
+    then:
+      - if:
+          condition:
+            microphone.is_capturing: onboard_mic
+          then:
+            - logger.log:
+                format: "MIC peak=%ld rms=%.0f (full scale 32767)"
+                args: ['(long) id(mic_peak)', 'id(mic_rms)']
+            - lambda: id(mic_peak) = 0;
+
+sensor:
+  - platform: sht4x
+    i2c_id: i2c_sensor
+    address: 0x44
+    temperature:
+      name: "Temperature"
+      id: temp_sensor
+    humidity:
+      name: "Relative Humidity"
+      id: hum_sensor
+    update_interval: 60s
+
+  - platform: template
+    id: battery_level
+    name: "Battery Level"
+    unit_of_measurement: "%"
+    device_class: battery
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: 60s
+    lambda: |-
+      uint8_t reg = 0x2C;
+      uint8_t raw[2] = {0, 0};
+      auto err = id(i2c_sensor).write_readv(0x55, &reg, 1, raw, 2);
+      if (err != esphome::i2c::ERROR_OK) {
+        return NAN;
+      }
+      return static_cast<float>(static_cast<uint16_t>(raw[0]) | (static_cast<uint16_t>(raw[1]) << 8));
+
+  - platform: template
+    id: battery_voltage
+    name: "Battery Voltage"
+    unit_of_measurement: "mV"
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: 60s
+    lambda: |-
+      uint8_t reg = 0x08;
+      uint8_t raw[2] = {0, 0};
+      auto err = id(i2c_sensor).write_readv(0x55, &reg, 1, raw, 2);
+      if (err != esphome::i2c::ERROR_OK) {
+        return NAN;
+      }
+      return static_cast<float>(static_cast<uint16_t>(raw[0]) | (static_cast<uint16_t>(raw[1]) << 8));
+
+  - platform: template
+    id: battery_current
+    name: "Battery Current"
+    unit_of_measurement: "mA"
+    device_class: current
+    state_class: measurement
+    accuracy_decimals: 0
+    update_interval: 60s
+    lambda: |-
+      uint8_t reg = 0x0C;
+      uint8_t raw[2] = {0, 0};
+      auto err = id(i2c_sensor).write_readv(0x55, &reg, 1, raw, 2);
+      if (err != esphome::i2c::ERROR_OK) {
+        return NAN;
+      }
+      uint16_t raw_value = static_cast<uint16_t>(raw[0]) | (static_cast<uint16_t>(raw[1]) << 8);
+      return static_cast<float>(static_cast<int16_t>(raw_value));
+
+  - platform: motion
+    motion_id: sticky_imu
+    type: pitch
+    name: "Pitch"
+    id: imu_pitch
+
+  - platform: motion
+    motion_id: sticky_imu
+    type: roll
+    name: "Roll"
+    id: imu_roll
+
+motion:
+  - platform: lsm6ds
+    id: sticky_imu
+    i2c_id: i2c_sensor
+    address: 0x6A
+    update_interval: 1s
+    accelerometer_range: 4G
+    accelerometer_odr: 26HZ
+    gyroscope_odr: "OFF"
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO5
+      mode: INPUT_PULLUP
+      inverted: true
+    id: button_up
+    name: "Button UP"
+    on_press:
+      - script.execute: beep
+
+  - platform: gpio
+    pin:
+      number: GPIO6
+      mode: INPUT_PULLUP
+      inverted: true
+    id: button_down
+    name: "Button DOWN"
+    on_press:
+      - script.execute: beep
+      - component.update: epaper_display
+
+  - platform: gpio
+    pin:
+      number: GPIO4
+      mode: INPUT_PULLUP
+      allow_other_uses: true
+      inverted: true
+    id: button_ok
+    name: "Button OK"
+    on_press:
+      - deep_sleep.prevent: deep_sleep_1
+      - output.turn_on: mic_power_enable
+      - lambda: id(mic_active) = true;
+      - delay: 60ms
+      - voice_assistant.start:
+      - script.execute: beep
+    on_release:
+      - lambda: id(mic_active) = false;
+
+  - platform: template
+    id: charging
+    name: "Battery Charging"
+    lambda: |-
+      if (isnan(id(battery_current).state)) {
+        return false;
+      }
+      return id(battery_current).state > 20.0f;
+
+microphone:
+  - platform: i2s_audio
+    i2s_audio_id: i2s_mic_bus
+    id: onboard_mic
+    adc_type: external
+    pdm: true
+    channel: left
+    i2s_din_pin: GPIO20
+    on_data:
+      - lambda: |-
+          const int16_t *samples = reinterpret_cast<const int16_t *>(x.data());
+          const size_t count = x.size() / 2;
+          if (count == 0) return;
+          int32_t peak = 0;
+          int64_t sum = 0;
+          for (size_t i = 0; i < count; i++) {
+            const int32_t v = samples[i];
+            const int32_t a = v < 0 ? -v : v;
+            if (a > peak) peak = a;
+            sum += (int64_t) v * v;
+          }
+          if (peak > id(mic_peak)) id(mic_peak) = peak;
+          id(mic_rms) = sqrtf((float) sum / (float) count);
+
+voice_assistant:
+  microphone: onboard_mic
+  id: assist
+  volume_multiplier: 4.0
+  auto_gain: 31dBFS
+  noise_suppression_level: 0
+
+  on_stt_end:
+    - lambda: id(last_query) = x;
+    - component.update: epaper_display
+
+  on_tts_start:
+    - lambda: id(last_response) = x;
+    - component.update: epaper_display
+
+  on_error:
+    - lambda: |-
+        id(last_response) = std::string("Error: ") + code + " " + message;
+    - component.update: epaper_display
+
+  on_end:
+    - output.turn_off: mic_power_enable
+    - lambda: id(mic_active) = false;
+    - delay: 5s
+    - if:
+        condition:
+          switch.is_off: prevent_sleep
+        then:
+          - deep_sleep.allow: deep_sleep_1
+
+touchscreen:
+  - platform: gt911
+    i2c_id: i2c_touch
+    id: sticky_touch
+    interrupt_pin: GPIO21
+    reset_pin: GPIO41
+    on_touch:
+      - logger.log:
+          format: "Touch x=%d y=%d"
+          args: [touch.x, touch.y]
+      - script.execute: beep
+
+time:
+  - platform: pcf8563
+    i2c_id: i2c_sensor
+    id: rtc_time
+    address: 0x51
+    update_interval: never
+
+  - platform: homeassistant
+    on_time_sync:
+      then:
+        - pcf8563.write_time:
+
+display:
+  - platform: epaper_spi
+    id: epaper_display
+    model: seeed-reterminal-sticky
+    update_interval: never
+    full_update_every: 10
+    lambda: |-
+      auto wrap = [&](int x, int y, auto *fnt, const std::string &s, int max_w, int line_h, int max_lines) {
+        if (s.empty()) return;
+        std::string line;
+        int lines = 0;
+        size_t pos = 0;
+        while (pos <= s.size() && lines < max_lines) {
+          size_t sp = s.find(' ', pos);
+          std::string word = (sp == std::string::npos) ? s.substr(pos) : s.substr(pos, sp - pos);
+          std::string test = line.empty() ? word : line + " " + word;
+
+          int x1, y1, w, h;
+          it.get_text_bounds(0, 0, test.c_str(), fnt, TextAlign::TOP_LEFT, &x1, &y1, &w, &h);
+
+          if (w > max_w && !line.empty()) {
+            it.printf(x, y + lines * line_h, fnt, COLOR_OFF, "%s", line.c_str());
+            lines++;
+            line = word;
+          } else {
+            line = test;
+          }
+          if (sp == std::string::npos) break;
+          pos = sp + 1;
+        }
+        if (!line.empty() && lines < max_lines)
+          it.printf(x, y + lines * line_h, fnt, COLOR_OFF, "%s", line.c_str());
+      };
+
+      it.printf(30, 14, id(font_medium), COLOR_OFF, TextAlign::TOP_LEFT, "reTerminal Sticky");
+
+      if (id(prevent_sleep).state) {
+        it.rectangle(688, 8, 96, 36, COLOR_OFF);
+        it.printf(736, 14, id(font_small), COLOR_OFF, TextAlign::TOP_CENTER, "AWAKE");
+      } else {
+        it.printf(736, 14, id(font_small), COLOR_OFF, TextAlign::TOP_CENTER, "Zzz");
+      }
+
+      it.line(20, 52, 780, 52, COLOR_OFF);
+
+      auto now = id(rtc_time).now();
+      if (now.is_valid()) {
+        it.strftime(30, 62, id(font_medium), COLOR_OFF, TextAlign::TOP_LEFT, "%a %d %b  %H:%M", now);
+      } else {
+        it.printf(30, 62, id(font_medium), COLOR_OFF, "RTC not synced");
+      }
+
+      if (id(temp_sensor).has_state() && id(hum_sensor).has_state()) {
+        it.printf(770, 62, id(font_medium), COLOR_OFF, TextAlign::TOP_RIGHT,
+                  "%.1f C   %.0f%%", id(temp_sensor).state, id(hum_sensor).state);
+      }
+
+      if (!isnan(id(battery_level).state)) {
+        it.printf(770, 100, id(font_small), COLOR_OFF, TextAlign::TOP_RIGHT,
+                  "Battery %.0f%%  %.0f mA",
+                  id(battery_level).state,
+                  isnan(id(battery_current).state) ? 0.0f : id(battery_current).state);
+      }
+
+      it.line(20, 140, 780, 140, COLOR_OFF);
+
+      if (id(mic_active)) {
+        it.printf(400, 250, id(font_large), COLOR_OFF, TextAlign::CENTER, "Listening...");
+      } else if (id(last_query).empty()) {
+        it.printf(400, 250, id(font_medium), COLOR_OFF, TextAlign::CENTER, "Hold OK to speak");
+      } else {
+        it.printf(30, 152, id(font_small), COLOR_OFF, "YOU SAID");
+        wrap(30, 178, id(font_medium), id(last_query), 740, 38, 2);
+
+        it.printf(30, 268, id(font_small), COLOR_OFF, "REPLY");
+        wrap(30, 294, id(font_medium), id(last_response), 740, 38, 3);
+      }
+
+      it.line(20, 430, 780, 430, COLOR_OFF);
+      it.printf(30, 440, id(font_small), COLOR_OFF, "OK: hold to talk   UP: beep   DOWN: refresh");
+
+      if (id(imu_pitch).has_state() && id(imu_roll).has_state()) {
+        it.printf(770, 440, id(font_small), COLOR_OFF, TextAlign::TOP_RIGHT,
+                  "pitch %.0f  roll %.0f", id(imu_pitch).state, id(imu_roll).state);
+      }
+
+deep_sleep:
+  id: deep_sleep_1
+  run_duration: 30s
+  sleep_duration: 5min
+  esp32_ext1_wakeup:
+    pins:
+      - number: GPIO4
+        mode: INPUT_PULLUP
+        allow_other_uses: true
+    mode: ANY_LOW
+
+api:
+  encryption:
+    key: "x"
+
+ota:
+  - platform: esphome
+    password: "x"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: Seeed Studio AI Fallback Hotspot
+    password: "x"
+
+captive_portal:
